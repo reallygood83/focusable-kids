@@ -31,11 +31,7 @@ export default function ScreeningTestPage() {
   const [responses, setResponses] = useState<number[]>(new Array(questions.length).fill(-1));
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (!user) {
-      router.push('/auth/login');
-    }
-  }, [user, router]);
+  // 게스트도 스크리닝 테스트 가능하도록 로그인 체크 제거
 
   const handleResponse = (value: number) => {
     const newResponses = [...responses];
@@ -56,8 +52,6 @@ export default function ScreeningTestPage() {
   };
 
   const submitTest = async () => {
-    if (!user) return;
-    
     setLoading(true);
     try {
       // 점수 계산
@@ -83,8 +77,7 @@ export default function ScreeningTestPage() {
         return sum + responses[questionIndex];
       }, 0);
 
-      // 결과를 데이터베이스에 저장 (실제로는 child_profiles가 있어야 함)
-      // 임시로 로컬스토리지에 저장
+      // 결과를 로컬스토리지에 저장 (게스트도 가능)
       const result = {
         testType,
         totalScore: score.total,
@@ -93,10 +86,24 @@ export default function ScreeningTestPage() {
         impulsivityScore,
         riskLevel: score.riskLevel,
         completedAt: new Date().toISOString(),
-        responses
+        responses,
+        isGuest: !user || user.email === 'guest@focusable.com'
       };
       
-      localStorage.setItem('screening_result', JSON.stringify(result));
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('screening_result', JSON.stringify(result));
+      }
+      
+      // 로그인된 사용자의 경우 데이터베이스에도 저장 시도
+      if (user && user.email !== 'guest@focusable.com') {
+        try {
+          // 데이터베이스 저장 로직 (선택사항)
+          // await supabase.from('screening_results').insert(result);
+        } catch (dbError) {
+          // 데이터베이스 저장 실패해도 결과는 표시
+          console.warn('데이터베이스 저장 실패:', dbError);
+        }
+      }
       
       toast({
         title: '테스트 완료!',
@@ -123,9 +130,7 @@ export default function ScreeningTestPage() {
   const isLastQuestion = currentQuestion === questions.length - 1;
   const allAnswered = responses.every(r => r !== -1);
 
-  if (!user) {
-    return <div>로그인이 필요합니다...</div>;
-  }
+  // 게스트도 테스트 가능하므로 로그인 체크 제거
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">

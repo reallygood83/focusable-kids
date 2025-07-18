@@ -55,18 +55,29 @@ export default function GuestPage() {
                 게스트로 시작하기
               </CardTitle>
               <CardDescription className="text-gray-700">
-                회원가입 없이 바로 게임을 시작할 수 있습니다
+                회원가입 없이 바로 이용할 수 있습니다
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button 
-                onClick={handleGuestLogin}
-                className="w-full gap-2"
-                size="lg"
-              >
-                <Gamepad2 className="w-5 h-5" />
-                게스트로 게임하기
-              </Button>
+              <div className="space-y-3">
+                <Button 
+                  onClick={handleGuestLogin}
+                  className="w-full gap-2"
+                  size="lg"
+                >
+                  <Gamepad2 className="w-5 h-5" />
+                  집중력 게임 하기
+                </Button>
+                <div className="text-center text-sm text-gray-600">또는</div>
+                <Button 
+                  onClick={() => router.push('/screening')}
+                  className="w-full gap-2 bg-blue-600 hover:bg-blue-700"
+                  size="lg"
+                >
+                  <Brain className="w-5 h-5" />
+                  ADHD 스크리닝 테스트
+                </Button>
+              </div>
             </CardContent>
           </Card>
 

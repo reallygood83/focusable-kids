@@ -13,10 +13,7 @@ export default function ScreeningPage() {
   const router = useRouter();
 
   const startTest = (testType: 'lower' | 'upper') => {
-    if (!user) {
-      router.push('/auth/login');
-      return;
-    }
+    // 게스트도 테스트 가능하도록 수정
     router.push(`/screening/${testType}`);
   };
 

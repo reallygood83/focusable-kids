@@ -35,11 +35,19 @@ export default function ScreeningResultPage() {
   const router = useRouter();
 
   useEffect(() => {
-    const savedResult = localStorage.getItem('screening_result');
-    if (savedResult) {
-      setResult(JSON.parse(savedResult));
-    } else {
-      router.push('/screening');
+    // 클라이언트 사이드에서만 localStorage 접근
+    if (typeof window !== 'undefined') {
+      const savedResult = localStorage.getItem('screening_result');
+      if (savedResult) {
+        try {
+          setResult(JSON.parse(savedResult));
+        } catch (e) {
+          console.error('결과 파싱 오류:', e);
+          router.push('/screening');
+        }
+      } else {
+        router.push('/screening');
+      }
     }
   }, [router]);
 

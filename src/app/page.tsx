@@ -18,12 +18,20 @@ export default function Home() {
           3분 게임으로 우리 아이의 주의력을 체크하고 훈련해보세요.
         </p>
         <div className="flex flex-col gap-4 items-center">
-          <Button size="lg" className="gap-2 bg-green-600 hover:bg-green-700 text-white px-8" asChild>
-            <Link href="/auth/guest">
-              <Gamepad2 className="w-5 h-5" />
-              지금 바로 게임하기 (로그인 없음)
-            </Link>
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Button size="lg" className="gap-2 bg-green-600 hover:bg-green-700 text-white px-8" asChild>
+              <Link href="/auth/guest">
+                <Gamepad2 className="w-5 h-5" />
+                지금 바로 게임하기
+              </Link>
+            </Button>
+            <Button size="lg" className="gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8" asChild>
+              <Link href="/screening">
+                <Brain className="w-5 h-5" />
+                ADHD 스크리닝 테스트
+              </Link>
+            </Button>
+          </div>
           <div className="flex gap-4">
             <Button size="sm" variant="outline" asChild>
               <Link href="/auth/login">
@@ -37,7 +45,7 @@ export default function Home() {
             </Button>
           </div>
           <p className="text-xs text-gray-500">
-            * 게임 기록을 저장하려면 회원가입이 필요합니다
+            * 결과 저장을 원하시면 회원가입이 필요합니다
           </p>
         </div>
       </section>
