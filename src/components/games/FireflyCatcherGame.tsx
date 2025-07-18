@@ -31,22 +31,11 @@ interface GameStats {
 
 export default function FireflyCatcherGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const gameRef = useRef<{ insects: Insect[]; gameStats: GameStats; gameStartTime: number }>({
-    insects: [],
-    gameStats: {
-      score: 0,
-      correctTaps: 0,
-      incorrectTaps: 0,
-      missed: 0,
-      accuracy: 0,
-      reactionTimes: [],
-      avgReactionTime: 0
-    },
-    gameStartTime: 0
-  });
+  const gameStartTime = useRef<number>(0);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [timeLeft, setTimeLeft] = useState(180); // 3분 = 180초
+  const [insects, setInsects] = useState<Insect[]>([]);
   const [gameStats, setGameStats] = useState<GameStats>({
     score: 0,
     correctTaps: 0,
@@ -76,8 +65,8 @@ export default function FireflyCatcherGame() {
 
   // 게임 초기화
   const initGame = useCallback(() => {
-    gameRef.current.insects = [];
-    gameRef.current.gameStats = {
+    setInsects([]);
+    setGameStats({
       score: 0,
       correctTaps: 0,
       incorrectTaps: 0,
@@ -85,8 +74,7 @@ export default function FireflyCatcherGame() {
       accuracy: 0,
       reactionTimes: [],
       avgReactionTime: 0
-    };
-    setGameStats(gameRef.current.gameStats);
+    });
     setTimeLeft(180);
   }, []);
 
@@ -127,7 +115,7 @@ export default function FireflyCatcherGame() {
       createdAt: Date.now()
     };
 
-    gameRef.current.insects.push(insect);
+    setInsects(prev => [...prev, insect]);
   }, [difficulty]);
 
   // 곤충 이동 및 업데이트
@@ -135,32 +123,34 @@ export default function FireflyCatcherGame() {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    gameRef.current.insects = gameRef.current.insects.filter(insect => {
-      // 경계에서 튕기기
-      if (insect.x <= insect.size || insect.x >= canvas.width - insect.size) {
-        insect.direction.x *= -1;
-      }
-      if (insect.y <= insect.size || insect.y >= canvas.height - insect.size) {
-        insect.direction.y *= -1;
-      }
-
-      // 위치 업데이트
-      insect.x += insect.direction.x * insect.speed;
-      insect.y += insect.direction.y * insect.speed;
-
-      // 경계 보정
-      insect.x = Math.max(insect.size, Math.min(canvas.width - insect.size, insect.x));
-      insect.y = Math.max(insect.size, Math.min(canvas.height - insect.size, insect.y));
-
-      // 5초 후 자동 제거 (놓친 것으로 처리)
-      if (Date.now() - insect.createdAt > 5000) {
-        if (insect.type === 'yellow-firefly') {
-          gameRef.current.gameStats.missed++;
+    setInsects(prevInsects => {
+      return prevInsects.filter(insect => {
+        // 경계에서 튕기기
+        if (insect.x <= insect.size || insect.x >= canvas.width - insect.size) {
+          insect.direction.x *= -1;
         }
-        return false;
-      }
+        if (insect.y <= insect.size || insect.y >= canvas.height - insect.size) {
+          insect.direction.y *= -1;
+        }
 
-      return true;
+        // 위치 업데이트
+        insect.x += insect.direction.x * insect.speed;
+        insect.y += insect.direction.y * insect.speed;
+
+        // 경계 보정
+        insect.x = Math.max(insect.size, Math.min(canvas.width - insect.size, insect.x));
+        insect.y = Math.max(insect.size, Math.min(canvas.height - insect.size, insect.y));
+
+        // 5초 후 자동 제거 (놓친 것으로 처리)
+        if (Date.now() - insect.createdAt > 5000) {
+          if (insect.type === 'yellow-firefly') {
+            setGameStats(prev => ({ ...prev, missed: prev.missed + 1 }));
+          }
+          return false;
+        }
+
+        return true;
+      });
     });
   }, []);
 
@@ -189,7 +179,7 @@ export default function FireflyCatcherGame() {
     }
 
     // 곤충 그리기
-    gameRef.current.insects.forEach(insect => {
+    insects.forEach(insect => {
       const data = insectData[insect.type];
       
       // 반딧불이 효과 (빛나는 효과)
@@ -223,7 +213,7 @@ export default function FireflyCatcherGame() {
         ctx.stroke();
       }
     });
-  }, []);
+  }, [insects]);
 
   // 마우스/터치 클릭 처리
   const handleCanvasClick = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
@@ -240,7 +230,7 @@ export default function FireflyCatcherGame() {
     let minDistance = Infinity;
 
     // 가장 가까운 곤충 찾기
-    gameRef.current.insects.forEach(insect => {
+    insects.forEach(insect => {
       const distance = Math.sqrt(
         Math.pow(clickX - insect.x, 2) + Math.pow(clickY - insect.y, 2)
       );
@@ -256,40 +246,36 @@ export default function FireflyCatcherGame() {
       const points = insectData[hitInsect.type].points;
       
       // 통계 업데이트
-      gameRef.current.gameStats.score += points;
-      gameRef.current.gameStats.reactionTimes.push(reactionTime);
-      
-      if (hitInsect.type === 'yellow-firefly') {
-        gameRef.current.gameStats.correctTaps++;
-      } else {
-        gameRef.current.gameStats.incorrectTaps++;
-      }
-      
-      // 정확도 계산
-      const totalAttempts = gameRef.current.gameStats.correctTaps + gameRef.current.gameStats.incorrectTaps;
-      gameRef.current.gameStats.accuracy = totalAttempts > 0 
-        ? (gameRef.current.gameStats.correctTaps / totalAttempts) * 100 
-        : 0;
-      
-      // 평균 반응 시간 계산
-      gameRef.current.gameStats.avgReactionTime = 
-        gameRef.current.gameStats.reactionTimes.reduce((a, b) => a + b, 0) / 
-        gameRef.current.gameStats.reactionTimes.length;
+      setGameStats(prev => {
+        const newReactionTimes = [...prev.reactionTimes, reactionTime];
+        const newCorrectTaps = hitInsect.type === 'yellow-firefly' ? prev.correctTaps + 1 : prev.correctTaps;
+        const newIncorrectTaps = hitInsect.type === 'yellow-firefly' ? prev.incorrectTaps : prev.incorrectTaps + 1;
+        const totalAttempts = newCorrectTaps + newIncorrectTaps;
+        const accuracy = totalAttempts > 0 ? (newCorrectTaps / totalAttempts) * 100 : 0;
+        const avgReactionTime = newReactionTimes.reduce((a, b) => a + b, 0) / newReactionTimes.length;
+
+        return {
+          ...prev,
+          score: prev.score + points,
+          reactionTimes: newReactionTimes,
+          correctTaps: newCorrectTaps,
+          incorrectTaps: newIncorrectTaps,
+          accuracy,
+          avgReactionTime
+        };
+      });
 
       // 곤충 제거
-      gameRef.current.insects = gameRef.current.insects.filter(i => i.id !== hitInsect!.id);
-      
-      // UI 업데이트
-      setGameStats({ ...gameRef.current.gameStats });
+      setInsects(prev => prev.filter(i => i.id !== hitInsect!.id));
     }
-  }, [isPlaying]);
+  }, [isPlaying, insects]);
+
 
   // 게임 시작
   const startGame = () => {
     initGame();
     setIsPlaying(true);
     setShowInstructions(false);
-    gameRef.current.gameStartTime = Date.now();
   };
 
   // 게임 일시정지
@@ -312,7 +298,7 @@ export default function FireflyCatcherGame() {
     
     // 곤충 생성 인터벌
     const spawnInterval = setInterval(() => {
-      if (gameRef.current.insects.length < settings.maxInsects) {
+      if (insects.length < settings.maxInsects) {
         createInsect();
       }
     }, settings.spawnRate);
@@ -339,7 +325,7 @@ export default function FireflyCatcherGame() {
       clearInterval(gameLoop);
       clearInterval(timer);
     };
-  }, [isPlaying, difficulty, createInsect, updateInsects, render]);
+  }, [isPlaying, difficulty, insects, createInsect, updateInsects, render]);
 
   // 캔버스 초기화
   useEffect(() => {

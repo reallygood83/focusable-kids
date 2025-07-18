@@ -164,7 +164,7 @@ export default function SimonsPathGame() {
         showNextCommand();
       }
     }, 1500);
-  }, [currentCommand, isWaitingForResponse, isPlaying]);
+  }, [currentCommand, isWaitingForResponse, isPlaying, showNextCommand]);
 
   // 무응답 처리
   const handleTimeout = useCallback(() => {
@@ -216,7 +216,7 @@ export default function SimonsPathGame() {
         showNextCommand();
       }
     }, 1000);
-  }, [currentCommand, isPlaying]);
+  }, [currentCommand, isPlaying, showNextCommand]);
 
   // 다음 명령어 표시
   const showNextCommand = useCallback(() => {
