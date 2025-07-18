@@ -79,9 +79,9 @@ export default function FireflyCatcherGame() {
   }, []);
 
   // 곤충 생성
-  const createInsect = useCallback(() => {
+  const createInsect = useCallback((): Insect | null => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return null;
 
     const types: Array<keyof typeof insectData> = ['yellow-firefly', 'red-firefly', 'moth', 'beetle'];
     const weights = [40, 25, 20, 15]; // 노란 반딧불이가 가장 많이 나타남
@@ -115,7 +115,7 @@ export default function FireflyCatcherGame() {
       createdAt: Date.now()
     };
 
-    setInsects(prev => [...prev, insect]);
+    return insect;
   }, [difficulty]);
 
   // 곤충 이동 및 업데이트
@@ -298,18 +298,33 @@ export default function FireflyCatcherGame() {
     
     // 곤충 생성 인터벌
     const spawnInterval = setInterval(() => {
-      if (insects.length < settings.maxInsects) {
-        createInsect();
-      }
+      setInsects(currentInsects => {
+        if (currentInsects.length < settings.maxInsects) {
+          const newInsect = createInsect();
+          if (newInsect) {
+            return [...currentInsects, newInsect];
+          }
+        }
+        return currentInsects;
+      });
     }, settings.spawnRate);
 
     // 게임 업데이트 루프
     const gameLoop = setInterval(() => {
       updateInsects();
       render();
-    }, 1000 / 60); // 60 FPS
+    }, 1000 / 30); // 30 FPS
 
-    // 타이머
+    return () => {
+      clearInterval(spawnInterval);
+      clearInterval(gameLoop);
+    };
+  }, [isPlaying, difficulty, createInsect, updateInsects, render]);
+
+  // 게임 타이머 (별도 useEffect)
+  useEffect(() => {
+    if (!isPlaying) return;
+
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
@@ -320,12 +335,8 @@ export default function FireflyCatcherGame() {
       });
     }, 1000);
 
-    return () => {
-      clearInterval(spawnInterval);
-      clearInterval(gameLoop);
-      clearInterval(timer);
-    };
-  }, [isPlaying, difficulty, insects, createInsect, updateInsects, render]);
+    return () => clearInterval(timer);
+  }, [isPlaying]);
 
   // 캔버스 초기화
   useEffect(() => {

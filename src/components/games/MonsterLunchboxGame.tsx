@@ -470,7 +470,7 @@ export default function MonsterLunchboxGame() {
       clearInterval(gameLoop);
       clearInterval(spawnInterval);
     };
-  }, [isPlaying, difficulty]);
+  }, [isPlaying, difficulty, updateConveyor, render, spawnConveyorFood]);
 
   // 주문 타이머
   useEffect(() => {

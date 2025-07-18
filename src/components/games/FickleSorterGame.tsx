@@ -434,13 +434,16 @@ export default function FickleSorterGame() {
     
     // 도형 생성
     const spawnInterval = setInterval(() => {
-      if (shapes.length < settings.maxShapes) {
-        const newShape = createShape();
-        if (newShape) {
-          setShapes(prev => [...prev, newShape]);
-          shapeStartTime.current = Date.now();
+      setShapes(currentShapes => {
+        if (currentShapes.length < settings.maxShapes) {
+          const newShape = createShape();
+          if (newShape) {
+            shapeStartTime.current = Date.now();
+            return [...currentShapes, newShape];
+          }
         }
-      }
+        return currentShapes;
+      });
     }, settings.shapeSpawnRate);
 
     // 게임 업데이트
@@ -465,7 +468,7 @@ export default function FickleSorterGame() {
       clearInterval(gameLoop);
       clearInterval(ruleTimer);
     };
-  }, [isPlaying, difficulty, shapes.length, createShape, updateShapes, render, changeRule]);
+  }, [isPlaying, difficulty, createShape, updateShapes, render, changeRule]);
 
   // 게임 타이머
   useEffect(() => {
