@@ -98,6 +98,97 @@ export default function SimonsPathGame() {
     };
   }, [difficulty]);
 
+  // 다음 명령어 표시
+  const showNextCommand = useCallback(() => {
+    console.log('showNextCommand called, isPlaying:', isPlaying);
+    
+    if (!isPlaying) {
+      console.log('Game not playing, returning early');
+      return;
+    }
+
+    const command = generateCommand();
+    console.log('Generated command:', command);
+    
+    setCurrentCommand(command);
+    setIsWaitingForResponse(true);
+    commandStartTime.current = Date.now();
+
+    // 응답 시간 제한
+    const settings = difficultySettings[difficulty];
+    console.log('Setting timeout for', settings.responseTime, 'ms');
+    
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    
+    timeoutRef.current = setTimeout(() => {
+      console.log('Command timeout triggered');
+      handleTimeout();
+    }, settings.responseTime);
+  }, [isPlaying, generateCommand, difficulty]);
+
+  // 무응답 처리
+  const handleTimeout = useCallback(() => {
+    console.log('handleTimeout called, currentCommand:', currentCommand);
+    
+    if (!currentCommand) {
+      console.log('No current command in timeout');
+      return;
+    }
+
+    const command = { ...currentCommand };
+    command.playerResponse = 'none';
+
+    console.log('Processing timeout for command:', command.text, 'isSimonSays:', command.isSimonSays);
+
+    // Simon Says 명령을 무시한 경우와 일반 명령을 무시한 경우 구분
+    if (command.isSimonSays) {
+      // Simon Says 명령을 무시 - 틀림
+      command.isCorrect = false;
+      setGameStats(prev => ({ 
+        ...prev, 
+        timeoutResponses: prev.timeoutResponses + 1,
+        totalCommands: prev.totalCommands + 1,
+        incorrectResponses: prev.incorrectResponses + 1
+      }));
+    } else {
+      // 일반 명령을 무시 - 정답
+      command.isCorrect = true;
+      setGameStats(prev => ({ 
+        ...prev, 
+        nonSimonIgnored: prev.nonSimonIgnored + 1,
+        totalCommands: prev.totalCommands + 1,
+        correctResponses: prev.correctResponses + 1,
+        score: prev.score + 5 // 올바르게 무시한 것에 대한 보상
+      }));
+    }
+
+    setGameStats(prev => {
+      const accuracy = prev.totalCommands > 0 
+        ? (prev.correctResponses / prev.totalCommands) * 100 
+        : 0;
+      
+      const avgReactionTime = reactionTimes.current.length > 0
+        ? reactionTimes.current.reduce((a, b) => a + b, 0) / reactionTimes.current.length
+        : 0;
+
+      return { ...prev, accuracy, avgReactionTime };
+    });
+
+    setIsWaitingForResponse(false);
+    setCurrentCommand(null);
+    
+    // 다음 명령어 대기
+    console.log('Scheduling next command after timeout in 1 second...');
+    setTimeout(() => {
+      console.log('About to show next command after timeout, isPlaying:', isPlaying);
+      if (isPlaying) {
+        showNextCommand();
+      }
+    }, 1000);
+  }, [currentCommand, isPlaying]);
+
   // 응답 처리
   const handleResponse = useCallback((direction: 'left' | 'right') => {
     console.log('handleResponse called with direction:', direction);
@@ -180,98 +271,9 @@ export default function SimonsPathGame() {
         showNextCommand();
       }
     }, 1500);
-  }, [currentCommand, isWaitingForResponse, isPlaying, showNextCommand]);
+  }, [currentCommand, isWaitingForResponse, isPlaying]);
 
-  // 무응답 처리
-  const handleTimeout = useCallback(() => {
-    console.log('handleTimeout called, currentCommand:', currentCommand);
-    
-    if (!currentCommand) {
-      console.log('No current command in timeout');
-      return;
-    }
 
-    const command = { ...currentCommand };
-    command.playerResponse = 'none';
-
-    console.log('Processing timeout for command:', command.text, 'isSimonSays:', command.isSimonSays);
-
-    // Simon Says 명령을 무시한 경우와 일반 명령을 무시한 경우 구분
-    if (command.isSimonSays) {
-      // Simon Says 명령을 무시 - 틀림
-      command.isCorrect = false;
-      setGameStats(prev => ({ 
-        ...prev, 
-        timeoutResponses: prev.timeoutResponses + 1,
-        totalCommands: prev.totalCommands + 1,
-        incorrectResponses: prev.incorrectResponses + 1
-      }));
-    } else {
-      // 일반 명령을 무시 - 정답
-      command.isCorrect = true;
-      setGameStats(prev => ({ 
-        ...prev, 
-        nonSimonIgnored: prev.nonSimonIgnored + 1,
-        totalCommands: prev.totalCommands + 1,
-        correctResponses: prev.correctResponses + 1,
-        score: prev.score + 5 // 올바르게 무시한 것에 대한 보상
-      }));
-    }
-
-    setGameStats(prev => {
-      const accuracy = prev.totalCommands > 0 
-        ? (prev.correctResponses / prev.totalCommands) * 100 
-        : 0;
-      
-      const avgReactionTime = reactionTimes.current.length > 0
-        ? reactionTimes.current.reduce((a, b) => a + b, 0) / reactionTimes.current.length
-        : 0;
-
-      return { ...prev, accuracy, avgReactionTime };
-    });
-
-    setIsWaitingForResponse(false);
-    setCurrentCommand(null);
-    
-    // 다음 명령어 대기
-    console.log('Scheduling next command after timeout in 1 second...');
-    setTimeout(() => {
-      console.log('About to show next command after timeout, isPlaying:', isPlaying);
-      if (isPlaying) {
-        showNextCommand();
-      }
-    }, 1000);
-  }, [currentCommand, isPlaying, showNextCommand]);
-
-  // 다음 명령어 표시
-  const showNextCommand = useCallback(() => {
-    console.log('showNextCommand called, isPlaying:', isPlaying);
-    
-    if (!isPlaying) {
-      console.log('Game not playing, returning early');
-      return;
-    }
-
-    const command = generateCommand();
-    console.log('Generated command:', command);
-    
-    setCurrentCommand(command);
-    setIsWaitingForResponse(true);
-    commandStartTime.current = Date.now();
-
-    // 응답 시간 제한
-    const settings = difficultySettings[difficulty];
-    console.log('Setting timeout for', settings.responseTime, 'ms');
-    
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-    
-    timeoutRef.current = setTimeout(() => {
-      console.log('Command timeout triggered');
-      handleTimeout();
-    }, settings.responseTime);
-  }, [isPlaying, generateCommand, difficulty, handleTimeout]);
 
   // 게임 초기화
   const initGame = useCallback(() => {
