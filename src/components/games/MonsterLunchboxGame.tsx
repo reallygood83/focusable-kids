@@ -278,8 +278,12 @@ export default function MonsterLunchboxGame() {
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    const clickX = event.clientX - rect.left;
-    const clickY = event.clientY - rect.top;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    // 캔버스의 실제 크기에 맞게 좌표 변환
+    const clickX = (event.clientX - rect.left) * scaleX / (window.devicePixelRatio || 1);
+    const clickY = (event.clientY - rect.top) * scaleY / (window.devicePixelRatio || 1);
 
     // 컨베이어 벨트의 음식 클릭 확인
     const clickedFood = conveyorFoods.find(food => {
@@ -532,12 +536,23 @@ export default function MonsterLunchboxGame() {
         const containerWidth = container.clientWidth;
         const aspectRatio = 800 / 400; // 원하는 가로:세로 비율
         
-        canvas.width = Math.min(containerWidth - 32, 800); // 패딩 고려
-        canvas.height = canvas.width / aspectRatio;
+        // CSS 크기 설정
+        const cssWidth = Math.min(containerWidth, 800);
+        const cssHeight = cssWidth / aspectRatio;
         
-        // CSS 크기도 동일하게 설정
-        canvas.style.width = canvas.width + 'px';
-        canvas.style.height = canvas.height + 'px';
+        // 캔버스 실제 크기 설정
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = cssWidth * dpr;
+        canvas.height = cssHeight * dpr;
+        
+        canvas.style.width = cssWidth + 'px';
+        canvas.style.height = cssHeight + 'px';
+        
+        // 컨텍스트 스케일 조정
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.scale(dpr, dpr);
+        }
         
         render();
       }

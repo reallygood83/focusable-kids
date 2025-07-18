@@ -83,6 +83,10 @@ export default function FireflyCatcherGame() {
     const canvas = canvasRef.current;
     if (!canvas) return null;
 
+    const dpr = window.devicePixelRatio || 1;
+    const cssWidth = canvas.width / dpr;
+    const cssHeight = canvas.height / dpr;
+
     const types: Array<keyof typeof insectData> = ['yellow-firefly', 'red-firefly', 'moth', 'beetle'];
     const weights = [40, 25, 20, 15]; // 노란 반딧불이가 가장 많이 나타남
     
@@ -103,8 +107,8 @@ export default function FireflyCatcherGame() {
     const insect: Insect = {
       id: Math.random().toString(36).substr(2, 9),
       type: selectedType,
-      x: Math.random() * (canvas.width - size * 2) + size,
-      y: Math.random() * (canvas.height - size * 2) + size,
+      x: Math.random() * (cssWidth - size * 2) + size,
+      y: Math.random() * (cssHeight - size * 2) + size,
       size,
       speed: settings.speed * (0.5 + Math.random() * 0.5),
       direction: {
@@ -123,13 +127,17 @@ export default function FireflyCatcherGame() {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    const dpr = window.devicePixelRatio || 1;
+    const cssWidth = canvas.width / dpr;
+    const cssHeight = canvas.height / dpr;
+
     setInsects(prevInsects => {
       return prevInsects.filter(insect => {
         // 경계에서 튕기기
-        if (insect.x <= insect.size || insect.x >= canvas.width - insect.size) {
+        if (insect.x <= insect.size || insect.x >= cssWidth - insect.size) {
           insect.direction.x *= -1;
         }
-        if (insect.y <= insect.size || insect.y >= canvas.height - insect.size) {
+        if (insect.y <= insect.size || insect.y >= cssHeight - insect.size) {
           insect.direction.y *= -1;
         }
 
@@ -138,8 +146,8 @@ export default function FireflyCatcherGame() {
         insect.y += insect.direction.y * insect.speed;
 
         // 경계 보정
-        insect.x = Math.max(insect.size, Math.min(canvas.width - insect.size, insect.x));
-        insect.y = Math.max(insect.size, Math.min(canvas.height - insect.size, insect.y));
+        insect.x = Math.max(insect.size, Math.min(cssWidth - insect.size, insect.x));
+        insect.y = Math.max(insect.size, Math.min(cssHeight - insect.size, insect.y));
 
         // 5초 후 자동 제거 (놓친 것으로 처리)
         if (Date.now() - insect.createdAt > 5000) {
@@ -160,18 +168,23 @@ export default function FireflyCatcherGame() {
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
 
+    // DPR을 고려한 실제 캔버스 크기
+    const dpr = window.devicePixelRatio || 1;
+    const cssWidth = canvas.width / dpr;
+    const cssHeight = canvas.height / dpr;
+
     // 배경 그리기 (밤하늘)
-    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    const gradient = ctx.createLinearGradient(0, 0, 0, cssHeight);
     gradient.addColorStop(0, '#1a1a2e');
     gradient.addColorStop(1, '#16213e');
     ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, cssWidth, cssHeight);
 
     // 별 그리기
     ctx.fillStyle = '#ffffff';
     for (let i = 0; i < 50; i++) {
-      const x = (i * 47) % canvas.width;
-      const y = (i * 31) % canvas.height;
+      const x = (i * 47) % cssWidth;
+      const y = (i * 31) % cssHeight;
       const size = Math.random() * 1 + 0.5;
       ctx.beginPath();
       ctx.arc(x, y, size, 0, Math.PI * 2);
@@ -223,8 +236,12 @@ export default function FireflyCatcherGame() {
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    const clickX = event.clientX - rect.left;
-    const clickY = event.clientY - rect.top;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    // 캔버스의 실제 크기에 맞게 좌표 변환
+    const clickX = (event.clientX - rect.left) * scaleX / (window.devicePixelRatio || 1);
+    const clickY = (event.clientY - rect.top) * scaleY / (window.devicePixelRatio || 1);
 
     let hitInsect: Insect | null = null;
     let minDistance = Infinity;
@@ -350,12 +367,24 @@ export default function FireflyCatcherGame() {
         const containerWidth = container.clientWidth;
         const aspectRatio = 800 / 500; // 원하는 가로:세로 비율
         
-        canvas.width = Math.min(containerWidth - 32, 800); // 패딩 고려
-        canvas.height = canvas.width / aspectRatio;
+        // CSS 크기 설정 (패딩 없이)
+        const cssWidth = Math.min(containerWidth, 800);
+        const cssHeight = cssWidth / aspectRatio;
         
-        // CSS 크기도 동일하게 설정
-        canvas.style.width = canvas.width + 'px';
-        canvas.style.height = canvas.height + 'px';
+        // 캔버스 실제 크기 설정 (고해상도 디스플레이 대응)
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = cssWidth * dpr;
+        canvas.height = cssHeight * dpr;
+        
+        // CSS 크기 설정
+        canvas.style.width = cssWidth + 'px';
+        canvas.style.height = cssHeight + 'px';
+        
+        // 컨텍스트 스케일 조정
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.scale(dpr, dpr);
+        }
         
         render();
       }
