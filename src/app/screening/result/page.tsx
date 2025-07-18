@@ -28,6 +28,10 @@ interface ScreeningResult {
   riskLevel: 'low' | 'moderate' | 'high';
   completedAt: string;
   responses: number[];
+  childName?: string;
+  childAge?: string;
+  parentName?: string;
+  isGuest?: boolean;
 }
 
 export default function ScreeningResultPage() {
@@ -122,24 +126,40 @@ export default function ScreeningResultPage() {
     impulsivity: Math.round((result.impulsivityScore / maxScoreByCategory.impulsivity) * 100)
   };
 
-  const recommendations = {
-    low: [
-      '현재 ADHD 증상이 거의 나타나지 않습니다.',
-      '정기적인 관찰을 통해 변화를 체크해보세요.',
-      '집중력 향상 게임으로 예방적 훈련을 해보세요.'
-    ],
-    moderate: [
-      '일부 ADHD 증상이 관찰되어 주의가 필요합니다.',
-      '구조화된 환경과 규칙적인 일과를 만들어보세요.',
-      '집중력 향상 게임을 꾸준히 활용해보세요.',
-      '3개월 후 재검사를 권장합니다.'
-    ],
-    high: [
-      'ADHD 증상이 다수 관찰됩니다.',
-      '소아정신과 전문의 상담을 받아보시기 바랍니다.',
-      '학교 선생님과도 상황을 공유해보세요.',
-      '전문적인 치료와 병행하여 집중력 게임을 활용하세요.'
-    ]
+  const getPersonalizedRecommendations = (level: string) => {
+    const childName = result.childName && result.childName !== '익명' ? result.childName : '아이';
+    
+    switch (level) {
+      case 'low':
+        return [
+          `${childName}는 현재 ADHD 증상이 거의 나타나지 않습니다.`,
+          '정기적인 관찰을 통해 변화를 체크해보세요.',
+          '집중력 향상 게임으로 예방적 훈련을 해보세요.',
+          '균형 잡힌 생활습관을 유지해주세요.'
+        ];
+      case 'moderate':
+        return [
+          `${childName}에게서 일부 ADHD 증상이 관찰되어 주의가 필요합니다.`,
+          '구조화된 환경과 규칙적인 일과를 만들어보세요.',
+          '집중력 향상 게임을 꾸준히 활용해보세요.',
+          '3개월 후 재검사를 권장합니다.',
+          result.childAge && parseInt(result.childAge) >= 10 
+            ? '학습 환경의 방해 요소를 최소화해주세요.'
+            : '놀이를 통한 집중력 훈련을 늘려보세요.'
+        ];
+      case 'high':
+        return [
+          `${childName}에게서 ADHD 증상이 다수 관찰됩니다.`,
+          '소아정신과 전문의 상담을 받아보시기 바랍니다.',
+          '학교 선생님과도 상황을 공유해보세요.',
+          '전문적인 치료와 병행하여 집중력 게임을 활용하세요.',
+          result.parentName 
+            ? `${result.parentName}께서는 지속적인 관심과 지원을 부탁드립니다.`
+            : '보호자님의 지속적인 관심과 지원이 중요합니다.'
+        ];
+      default:
+        return ['전문의와 상담해보시기 바랍니다.'];
+    }
   };
 
   return (
@@ -148,12 +168,27 @@ export default function ScreeningResultPage() {
         <div className="max-w-4xl mx-auto">
           {/* Header */}
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold mb-4">스크리닝 테스트 결과</h1>
-            <Badge variant="outline">
-              {result.testType === 'lower' ? '초등 저학년' : '초등 고학년'} 테스트
-            </Badge>
-            <p className="text-gray-600 mt-2">
+            <h1 className="text-3xl font-bold mb-4">
+              {result.childName && result.childName !== '익명'
+                ? `${result.childName}의 스크리닝 테스트 결과`
+                : '스크리닝 테스트 결과'
+              }
+            </h1>
+            <div className="flex justify-center items-center gap-4 mb-4">
+              <Badge variant="outline">
+                {result.testType === 'lower' ? '초등 저학년' : '초등 고학년'} 테스트
+              </Badge>
+              {result.childAge && (
+                <Badge variant="outline">
+                  {result.childAge}세
+                </Badge>
+              )}
+            </div>
+            <p className="text-gray-600">
               검사 완료: {new Date(result.completedAt).toLocaleDateString('ko-KR')}
+              {result.parentName && (
+                <span className="block text-sm mt-1">검사자: {result.parentName}</span>
+              )}
             </p>
           </div>
 
@@ -254,7 +289,7 @@ export default function ScreeningResultPage() {
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2">
-                  {recommendations[result.riskLevel].map((rec, index) => (
+                  {getPersonalizedRecommendations(result.riskLevel).map((rec, index) => (
                     <li key={index} className="flex items-start gap-2">
                       <span className="text-blue-600 mt-1">•</span>
                       <span>{rec}</span>

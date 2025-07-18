@@ -30,8 +30,30 @@ export default function ScreeningTestPage() {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [responses, setResponses] = useState<number[]>(new Array(questions.length).fill(-1));
   const [loading, setLoading] = useState(false);
+  const [testInfo, setTestInfo] = useState<any>(null);
 
-  // 게스트도 스크리닝 테스트 가능하도록 로그인 체크 제거
+  useEffect(() => {
+    // 설정 정보 확인
+    if (typeof window !== 'undefined') {
+      const savedInfo = localStorage.getItem('screening_info');
+      if (savedInfo) {
+        try {
+          const info = JSON.parse(savedInfo);
+          if (info.testType === testType) {
+            setTestInfo(info);
+          } else {
+            // 다른 테스트 타입이면 설정 페이지로 이동
+            router.push(`/screening/setup?type=${testType}`);
+          }
+        } catch (e) {
+          router.push(`/screening/setup?type=${testType}`);
+        }
+      } else {
+        // 설정 정보가 없으면 설정 페이지로 이동
+        router.push(`/screening/setup?type=${testType}`);
+      }
+    }
+  }, [testType, router]);
 
   const handleResponse = (value: number) => {
     const newResponses = [...responses];
@@ -79,6 +101,7 @@ export default function ScreeningTestPage() {
 
       // 결과를 로컬스토리지에 저장 (게스트도 가능)
       const result = {
+        ...testInfo, // 설정에서 입력한 개인 정보 포함
         testType,
         totalScore: score.total,
         attentionScore,
@@ -130,7 +153,17 @@ export default function ScreeningTestPage() {
   const isLastQuestion = currentQuestion === questions.length - 1;
   const allAnswered = responses.every(r => r !== -1);
 
-  // 게스트도 테스트 가능하므로 로그인 체크 제거
+  // 설정 정보가 로드되지 않았으면 로딩 표시
+  if (!testInfo) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p>테스트를 준비하고 있습니다...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -141,7 +174,17 @@ export default function ScreeningTestPage() {
             <Badge variant="outline" className="mb-4">
               {testType === 'lower' ? '초등 저학년' : '초등 고학년'} 테스트
             </Badge>
-            <h1 className="text-2xl font-bold mb-2">ADHD 스크리닝 테스트</h1>
+            <h1 className="text-2xl font-bold mb-2">
+              {testInfo.childName && testInfo.childName !== '익명' 
+                ? `${testInfo.childName}의 ADHD 스크리닝 테스트`
+                : 'ADHD 스크리닝 테스트'
+              }
+            </h1>
+            {testInfo.childAge && (
+              <p className="text-sm text-gray-600 mb-4">
+                {testInfo.childAge}세 • {testType === 'lower' ? '초등 저학년' : '초등 고학년'} 기준
+              </p>
+            )}
             <div className="flex items-center justify-center gap-4 text-sm text-gray-600">
               <span>질문 {currentQuestion + 1} / {questions.length}</span>
               <Progress value={progress} className="w-32" />
