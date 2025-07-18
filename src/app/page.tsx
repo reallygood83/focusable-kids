@@ -17,18 +17,28 @@ export default function Home() {
           초등학생을 위한 ADHD 조기 선별 및 집중력 향상 게임 플랫폼.
           3분 게임으로 우리 아이의 주의력을 체크하고 훈련해보세요.
         </p>
-        <div className="flex gap-4 justify-center">
-          <Button size="lg" className="gap-2" asChild>
-            <Link href="/auth/register">
+        <div className="flex flex-col gap-4 items-center">
+          <Button size="lg" className="gap-2 bg-green-600 hover:bg-green-700 text-white px-8" asChild>
+            <Link href="/auth/guest">
               <Gamepad2 className="w-5 h-5" />
-              무료로 시작하기
+              지금 바로 게임하기 (로그인 없음)
             </Link>
           </Button>
-          <Button size="lg" variant="outline" className="gap-2" asChild>
-            <Link href="/auth/login">
-              로그인
-            </Link>
-          </Button>
+          <div className="flex gap-4">
+            <Button size="sm" variant="outline" asChild>
+              <Link href="/auth/login">
+                로그인
+              </Link>
+            </Button>
+            <Button size="sm" variant="outline" asChild>
+              <Link href="/auth/register">
+                회원가입
+              </Link>
+            </Button>
+          </div>
+          <p className="text-xs text-gray-500">
+            * 게임 기록을 저장하려면 회원가입이 필요합니다
+          </p>
         </div>
       </section>
 
