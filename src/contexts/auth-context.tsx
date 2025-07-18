@@ -26,12 +26,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
 
   useEffect(() => {
-    // Check for guest user in localStorage first
-    const guestUser = localStorage.getItem('guestUser');
-    if (guestUser) {
-      setUser(JSON.parse(guestUser));
-      setLoading(false);
-      return;
+    // Check for guest user in localStorage first (client side only)
+    if (typeof window !== 'undefined') {
+      const guestUser = localStorage.getItem('guestUser');
+      if (guestUser) {
+        try {
+          setUser(JSON.parse(guestUser));
+          setLoading(false);
+          return;
+        } catch (e) {
+          // Invalid guest user data, remove it
+          localStorage.removeItem('guestUser');
+        }
+      }
     }
 
     // Check active sessions and sets the user
@@ -52,8 +59,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [supabase.auth]);
 
   const signOut = async () => {
-    // Clear guest user if exists
-    localStorage.removeItem('guestUser');
+    // Clear guest user if exists (client side only)
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('guestUser');
+    }
     
     // Sign out from Supabase
     await supabase.auth.signOut();

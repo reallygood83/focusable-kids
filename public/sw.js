@@ -30,6 +30,11 @@ self.addEventListener('activate', (event) => {
 
 // Fetch event - serve from cache, fallback to network
 self.addEventListener('fetch', (event) => {
+  // Skip chrome-extension and other non-http requests
+  if (!event.request.url.startsWith('http')) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
@@ -52,7 +57,13 @@ self.addEventListener('fetch', (event) => {
 
           caches.open(CACHE_NAME)
             .then((cache) => {
-              cache.put(event.request, responseToCache);
+              // Only cache http requests
+              if (event.request.url.startsWith('http')) {
+                cache.put(event.request, responseToCache);
+              }
+            })
+            .catch(() => {
+              // Ignore cache errors
             });
 
           return response;

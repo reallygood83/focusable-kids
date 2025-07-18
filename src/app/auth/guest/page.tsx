@@ -22,8 +22,10 @@ export default function GuestPage() {
       }
     };
 
-    // 로컬 스토리지에 게스트 정보 저장
-    localStorage.setItem('guestUser', JSON.stringify(guestUser));
+    // 로컬 스토리지에 게스트 정보 저장 (클라이언트 사이드에서만)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('guestUser', JSON.stringify(guestUser));
+    }
     
     // Auth context 업데이트
     setUser(guestUser as any);
