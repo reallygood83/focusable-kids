@@ -12,18 +12,24 @@ import {
   Brain,
   Trophy,
   Play,
-  ArrowRight
+  ArrowRight,
+  Heart,
+  GraduationCap
 } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { gameConfigs } from '@/data/game-config';
+import { enhancedGames, gameCategories } from '@/data/enhanced-games';
 
 export default function GamesPage() {
   const { user } = useAuth();
   const router = useRouter();
 
-  const startGame = (gameId: string) => {
-    // 개발/테스트를 위해 로그인 없이도 게임 플레이 가능
-    router.push(`/games/${gameId}`);
+  const startGame = (gameId: string, isEnhanced = false) => {
+    if (isEnhanced) {
+      router.push(`/games/enhanced/${gameId}`);
+    } else {
+      router.push(`/games/${gameId}`);
+    }
   };
 
   const getDifficultyColor = (difficulty: string) => {
@@ -69,47 +75,145 @@ export default function GamesPage() {
           </div>
         </div>
 
-        {/* Games Grid */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-          {Object.values(gameConfigs).map((game) => (
-            <Card key={game.id} className="hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <div className="flex items-center justify-between mb-2">
-                  <Badge className={getDifficultyColor(game.difficulty)}>
-                    {getDifficultyIcon(game.difficulty)}
-                    <span className="ml-1 capitalize">{game.difficulty}</span>
-                  </Badge>
-                  <Clock className="w-4 h-4 text-gray-500" />
+        {/* Enhanced Games Section */}
+        <div className="mb-12">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl font-bold mb-4">🧠 실행 기능 강화 게임</h2>
+            <p className="text-gray-600 mb-6">
+              3가지 핵심 실행 기능을 체계적으로 훈련하는 과학적 설계 게임
+            </p>
+          </div>
+
+          {/* Executive Function Categories */}
+          {Object.entries(gameCategories).map(([categoryKey, category]) => {
+            const categoryGames = enhancedGames.filter(game => game.category === categoryKey);
+            const categoryIcon = categoryKey === 'inhibition' ? '🛑' : 
+                               categoryKey === 'working-memory' ? '🧠' : '🔄';
+            
+            return (
+              <div key={categoryKey} className="mb-8">
+                <Card className={`${category.bgColor} border-0 mb-4`}>
+                  <CardHeader className="pb-3">
+                    <CardTitle className={`flex items-center gap-3 ${category.color}`}>
+                      <span className="text-2xl">{category.icon}</span>
+                      <div>
+                        <div className="text-xl">{category.name}</div>
+                        <div className="text-sm font-normal text-gray-600">{category.description}</div>
+                      </div>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+                      {category.benefits.map((benefit, index) => (
+                        <div key={index} className="flex items-center gap-1">
+                          <span className="text-green-600">✓</span>
+                          <span>{benefit}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <div className="grid md:grid-cols-2 gap-6">
+                  {categoryGames.map((game) => (
+                    <Card key={game.id} className="hover:shadow-lg transition-shadow border-2 hover:border-blue-200">
+                      <CardHeader>
+                        <div className="flex items-center justify-between mb-2">
+                          <Badge className={getDifficultyColor(game.difficulty)}>
+                            {getDifficultyIcon(game.difficulty)}
+                            <span className="ml-1 capitalize">{game.difficulty}</span>
+                          </Badge>
+                          <Badge variant="outline" className="text-xs">
+                            {Math.floor(game.duration / 60)}분
+                          </Badge>
+                        </div>
+                        <CardTitle className="text-xl">{game.title}</CardTitle>
+                        <CardDescription className="text-sm leading-relaxed">
+                          {game.description}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-3 mb-4">
+                          <div className="text-xs text-blue-700 bg-blue-50 p-2 rounded">
+                            <strong>인지 연결:</strong> {game.cognitiveConnection}
+                          </div>
+                          
+                          <div className="space-y-1">
+                            <div className="text-xs font-medium text-gray-700">설계 원칙:</div>
+                            <div className="flex flex-wrap gap-1">
+                              {game.designPrinciples.map((principle, index) => (
+                                <Badge key={index} variant="secondary" className="text-xs">
+                                  {principle}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <Button 
+                          onClick={() => startGame(game.id, true)} 
+                          className="w-full gap-2"
+                        >
+                          <Play className="w-4 h-4" />
+                          게임 시작
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
-                <CardTitle className="text-xl">{game.name}</CardTitle>
-                <CardDescription>{game.description}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3 mb-4">
-                  <div className="flex justify-between text-sm">
-                    <span>게임 시간:</span>
-                    <span className="font-medium">{Math.floor(game.duration / 60)}분</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Classic Games Section */}
+        <div className="mb-8">
+          <div className="text-center mb-6">
+            <h2 className="text-2xl font-bold mb-2">⚡ 클래식 집중력 게임</h2>
+            <p className="text-gray-600">빠른 반응과 주의력 훈련에 특화된 게임</p>
+          </div>
+          
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {Object.values(gameConfigs).map((game) => (
+              <Card key={game.id} className="hover:shadow-lg transition-shadow">
+                <CardHeader>
+                  <div className="flex items-center justify-between mb-2">
+                    <Badge className={getDifficultyColor(game.difficulty)}>
+                      {getDifficultyIcon(game.difficulty)}
+                      <span className="ml-1 capitalize">{game.difficulty}</span>
+                    </Badge>
+                    <Clock className="w-4 h-4 text-gray-500" />
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span>반응 시간:</span>
-                    <span className="font-medium">{game.responseTimeLimit}ms</span>
+                  <CardTitle className="text-xl">{game.name}</CardTitle>
+                  <CardDescription>{game.description}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3 mb-4">
+                    <div className="flex justify-between text-sm">
+                      <span>게임 시간:</span>
+                      <span className="font-medium">{Math.floor(game.duration / 60)}분</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>반응 시간:</span>
+                      <span className="font-medium">{game.responseTimeLimit}ms</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>타겟 비율:</span>
+                      <span className="font-medium">{Math.round(game.targetProbability * 100)}%</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span>타겟 비율:</span>
-                    <span className="font-medium">{Math.round(game.targetProbability * 100)}%</span>
-                  </div>
-                </div>
-                
-                <Button 
-                  onClick={() => startGame(game.id)} 
-                  className="w-full gap-2"
-                >
-                  <Play className="w-4 h-4" />
-                  게임 시작
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
+                  
+                  <Button 
+                    onClick={() => startGame(game.id)} 
+                    className="w-full gap-2"
+                  >
+                    <Play className="w-4 h-4" />
+                    게임 시작
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
 
         {/* How to Play */}

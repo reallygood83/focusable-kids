@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Brain, Clock, Users, Star } from 'lucide-react';
+import { Brain, Clock, Users, Star, ArrowRight } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 
 export default function ScreeningPage() {
@@ -40,6 +40,43 @@ export default function ScreeningPage() {
               무료 이용
             </Badge>
           </div>
+        </div>
+
+        {/* Professional Screening Banner */}
+        <div className="mb-8">
+          <Card className="bg-gradient-to-r from-blue-600 to-purple-600 text-white border-0">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <h2 className="text-xl font-bold mb-2">🎯 K-ARS 전문 스크리닝</h2>
+                  <p className="text-blue-100 mb-4">
+                    DSM-5 기준의 전문적인 ADHD 스크리닝을 경험해보세요. 
+                    보호자와 교사가 각각 사용할 수 있는 전문가급 평가 도구입니다.
+                  </p>
+                  <div className="flex gap-2 mb-4">
+                    <Badge variant="secondary" className="text-blue-600">DSM-5 기준</Badge>
+                    <Badge variant="secondary" className="text-blue-600">K-ARS 기반</Badge>
+                    <Badge variant="secondary" className="text-blue-600">24문항</Badge>
+                  </div>
+                </div>
+                <div className="ml-6">
+                  <Button 
+                    onClick={() => router.push('/screening/professional/setup')}
+                    className="bg-white text-blue-600 hover:bg-blue-50"
+                    size="lg"
+                  >
+                    전문 스크리닝 시작
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="text-center mb-6">
+          <h2 className="text-2xl font-bold mb-2">간편 스크리닝 테스트</h2>
+          <p className="text-gray-600">빠르고 간단한 기본 스크리닝을 원하신다면 아래 옵션을 선택하세요.</p>
         </div>
 
         {/* Test Options */}
