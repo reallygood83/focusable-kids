@@ -252,15 +252,42 @@ export default function GamePage() {
   }, [gameState, responses, stimuli, gameStats, gameId, gameConfig, router]);
 
   const handleStimulusClick = useCallback(() => {
-    if (!currentStimulusRef.current) return;
+    console.log('Click detected, current stimulus:', currentStimulusRef.current);
+    
+    // 게임이 진행 중이 아니면 클릭 무시
+    if (gameState !== 'playing') {
+      console.log('Game not playing, ignoring click');
+      return;
+    }
+    
+    // 현재 자극이 없으면 클릭 무시
+    if (!currentStimulusRef.current) {
+      console.log('No current stimulus, ignoring click');
+      return;
+    }
     
     const stimulus = currentStimulusRef.current;
     const responseTime = Date.now() - responseStartTime.current;
     
-    if (responseTime > gameConfig.responseTimeLimit) return;
+    console.log('Response time:', responseTime, 'ms');
+    
+    // 반응 시간 제한 체크
+    if (responseTime > gameConfig.responseTimeLimit) {
+      console.log('Response time exceeded limit, ignoring click');
+      return;
+    }
+    
+    // 이미 응답한 자극인지 체크 (중복 클릭 방지)
+    const existingResponse = responses.find(r => r.stimulusId === stimulus.id);
+    if (existingResponse) {
+      console.log('Already responded to this stimulus, ignoring click');
+      return;
+    }
     
     const isCorrect = stimulus.type === 'target';
     const responseType = isCorrect ? 'hit' : 'falseAlarm';
+    
+    console.log('Processing response:', responseType, 'for stimulus:', stimulus.type);
     
     const response: GameResponse = {
       stimulusId: stimulus.id,
@@ -270,12 +297,21 @@ export default function GamePage() {
       timestamp: Date.now()
     };
     
-    setResponses(prev => [...prev, response]);
-    setGameStats(prev => ({
-      ...prev,
-      [responseType === 'hit' ? 'hits' : 'falseAlarms']: 
-        prev[responseType === 'hit' ? 'hits' : 'falseAlarms'] + 1
-    }));
+    setResponses(prev => {
+      const newResponses = [...prev, response];
+      console.log('Updated responses:', newResponses.length);
+      return newResponses;
+    });
+    
+    setGameStats(prev => {
+      const newStats = {
+        ...prev,
+        [responseType === 'hit' ? 'hits' : 'falseAlarms']: 
+          prev[responseType === 'hit' ? 'hits' : 'falseAlarms'] + 1
+      };
+      console.log('Updated stats:', newStats);
+      return newStats;
+    });
     
     // 자극 즉시 제거
     setCurrentStimulus(null);
@@ -288,8 +324,15 @@ export default function GamePage() {
         description: `반응시간: ${responseTime}ms`,
         duration: 1000
       });
+    } else {
+      toast({
+        title: '오답 😅',
+        description: '타겟이 아닙니다',
+        duration: 1000,
+        variant: 'destructive'
+      });
     }
-  }, [gameConfig.responseTimeLimit, toast]);
+  }, [gameState, gameConfig.responseTimeLimit, responses, toast]);
 
 
   const pauseGame = () => {
@@ -404,10 +447,7 @@ export default function GamePage() {
           {/* Game Area */}
           <Card className="bg-white border-gray-200 mb-6 shadow-lg">
             <CardContent className="p-8">
-              <div 
-                className="min-h-[400px] flex items-center justify-center cursor-pointer relative bg-gray-50 rounded-lg border-2 border-dashed border-gray-300"
-                onClick={handleStimulusClick}
-              >
+              <div className="min-h-[400px] flex items-center justify-center relative bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
                 {gameState === 'ready' && (
                   <div className="text-center">
                     <h2 className="text-3xl font-bold mb-4 text-gray-900">게임 준비!</h2>
@@ -421,7 +461,9 @@ export default function GamePage() {
                 
                 {gameState === 'playing' && currentStimulus && (
                   <div className="relative">
-                    <StimulusDisplay stimulus={currentStimulus} />
+                    <div onClick={handleStimulusClick} className="cursor-pointer">
+                      <StimulusDisplay stimulus={currentStimulus} />
+                    </div>
                     <div className="absolute -bottom-16 left-1/2 transform -translate-x-1/2">
                       <Badge variant="outline" className="bg-blue-50 border-blue-200 text-blue-800">
                         클릭하세요!

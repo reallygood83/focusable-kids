@@ -241,41 +241,39 @@ export default function FireflyCatcherGame() {
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
     
-    // 간단한 좌표 변환 (CSS 픽셀 기준)
-    const clickX = event.clientX - rect.left;
-    const clickY = event.clientY - rect.top;
+    // 클릭 위치를 캔버스 좌표계로 변환
+    const clickX = (event.clientX - rect.left) * (canvas.width / dpr) / rect.width;
+    const clickY = (event.clientY - rect.top) * (canvas.height / dpr) / rect.height;
     
-    // 캔버스 CSS 크기에 맞게 스케일링
-    const scaleX = parseFloat(canvas.style.width) / rect.width;
-    const scaleY = parseFloat(canvas.style.height) / rect.height;
-    
-    const scaledX = clickX * scaleX;
-    const scaledY = clickY * scaleY;
-    
-    console.log('클릭 위치:', { clickX, clickY, scaledX, scaledY });
-    console.log('캔버스 정보:', { 
-      rectWidth: rect.width, 
+    console.log('클릭 위치:', { 
+      clientX: event.clientX, 
+      clientY: event.clientY,
+      rectLeft: rect.left,
+      rectTop: rect.top,
+      rectWidth: rect.width,
       rectHeight: rect.height,
-      styleWidth: canvas.style.width,
-      styleHeight: canvas.style.height,
       canvasWidth: canvas.width,
-      canvasHeight: canvas.height
+      canvasHeight: canvas.height,
+      dpr,
+      clickX, 
+      clickY 
     });
 
     let hitInsect: Insect | null = null;
     let minDistance = Infinity;
 
-    // 가장 가까운 곤충 찾기 (CSS 크기 기준으로 비교)
+    // 가장 가까운 곤충 찾기
     insects.forEach(insect => {
       const distance = Math.sqrt(
-        Math.pow(scaledX - insect.x, 2) + Math.pow(scaledY - insect.y, 2)
+        Math.pow(clickX - insect.x, 2) + Math.pow(clickY - insect.y, 2)
       );
       
       console.log(`곤충 ${insect.id}: 위치(${insect.x}, ${insect.y}), 거리: ${distance}, 크기: ${insect.size}`);
       
       // 히트박스를 더 크게 설정 (터치하기 쉽게)
-      const hitRadius = insect.size * 1.5;
+      const hitRadius = insect.size * 2;
       
       if (distance <= hitRadius && distance < minDistance) {
         hitInsect = insect;
