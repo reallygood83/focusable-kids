@@ -100,7 +100,18 @@ export default function SimonsPathGame() {
 
   // 응답 처리
   const handleResponse = useCallback((direction: 'left' | 'right') => {
-    if (!currentCommand || !isWaitingForResponse) return;
+    console.log('handleResponse called with direction:', direction);
+    
+    if (!currentCommand || !isWaitingForResponse) {
+      console.log('No current command or not waiting for response');
+      return;
+    }
+
+    // 타이머 정리
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
 
     const reactionTime = Date.now() - commandStartTime.current;
     reactionTimes.current.push(reactionTime);
@@ -108,6 +119,8 @@ export default function SimonsPathGame() {
     const command = { ...currentCommand };
     command.playerResponse = direction;
     command.reactionTime = reactionTime;
+
+    console.log('Processing response for command:', command.text, 'isSimonSays:', command.isSimonSays);
 
     // 정답 여부 판단
     let isCorrect = false;
@@ -129,6 +142,7 @@ export default function SimonsPathGame() {
     }
 
     command.isCorrect = isCorrect;
+    console.log('Response result - isCorrect:', isCorrect, 'points:', points);
 
     // 캐릭터 이동
     setCharacterPosition(direction);
@@ -159,19 +173,28 @@ export default function SimonsPathGame() {
     setCurrentCommand(null);
     
     // 다음 명령어 대기
+    console.log('Scheduling next command in 1.5 seconds...');
     setTimeout(() => {
+      console.log('About to show next command, isPlaying:', isPlaying);
       if (isPlaying) {
         showNextCommand();
       }
     }, 1500);
-  }, [currentCommand, isWaitingForResponse, isPlaying]);
+  }, [currentCommand, isWaitingForResponse, isPlaying, showNextCommand]);
 
   // 무응답 처리
   const handleTimeout = useCallback(() => {
-    if (!currentCommand) return;
+    console.log('handleTimeout called, currentCommand:', currentCommand);
+    
+    if (!currentCommand) {
+      console.log('No current command in timeout');
+      return;
+    }
 
     const command = { ...currentCommand };
     command.playerResponse = 'none';
+
+    console.log('Processing timeout for command:', command.text, 'isSimonSays:', command.isSimonSays);
 
     // Simon Says 명령을 무시한 경우와 일반 명령을 무시한 경우 구분
     if (command.isSimonSays) {
@@ -211,25 +234,43 @@ export default function SimonsPathGame() {
     setCurrentCommand(null);
     
     // 다음 명령어 대기
+    console.log('Scheduling next command after timeout in 1 second...');
     setTimeout(() => {
+      console.log('About to show next command after timeout, isPlaying:', isPlaying);
       if (isPlaying) {
         showNextCommand();
       }
     }, 1000);
-  }, [currentCommand, isPlaying]);
+  }, [currentCommand, isPlaying, showNextCommand]);
 
   // 다음 명령어 표시
   const showNextCommand = useCallback(() => {
-    if (!isPlaying) return;
+    console.log('showNextCommand called, isPlaying:', isPlaying);
+    
+    if (!isPlaying) {
+      console.log('Game not playing, returning early');
+      return;
+    }
 
     const command = generateCommand();
+    console.log('Generated command:', command);
+    
     setCurrentCommand(command);
     setIsWaitingForResponse(true);
     commandStartTime.current = Date.now();
 
     // 응답 시간 제한
     const settings = difficultySettings[difficulty];
-    timeoutRef.current = setTimeout(handleTimeout, settings.responseTime);
+    console.log('Setting timeout for', settings.responseTime, 'ms');
+    
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    
+    timeoutRef.current = setTimeout(() => {
+      console.log('Command timeout triggered');
+      handleTimeout();
+    }, settings.responseTime);
   }, [isPlaying, generateCommand, difficulty, handleTimeout]);
 
   // 게임 초기화
@@ -260,10 +301,16 @@ export default function SimonsPathGame() {
 
   // 게임 시작
   const startGame = () => {
+    console.log('Starting Simon\'s Path game...');
     initGame();
     setIsPlaying(true);
     setShowInstructions(false);
-    setTimeout(() => showNextCommand(), 1000);
+    
+    // 첫 번째 명령어를 바로 표시
+    setTimeout(() => {
+      console.log('Showing first command...');
+      showNextCommand();
+    }, 1000);
   };
 
   // 게임 일시정지
