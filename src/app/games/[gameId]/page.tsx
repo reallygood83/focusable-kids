@@ -6,23 +6,23 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Play, 
-  Pause, 
-  RotateCcw, 
+import {
+  Play,
+  Pause,
+  RotateCcw,
   Home,
   Timer,
   Target,
   Zap
 } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
-import { 
-  gameConfigs, 
-  generateStimulus, 
+import {
+  gameConfigs,
+  generateStimulus,
   calculateGameScore,
-  GameStimulus, 
-  GameResponse, 
-  GameResult 
+  GameStimulus,
+  GameResponse,
+  GameResult
 } from '@/data/game-config';
 import { useToast } from '@/hooks/use-toast';
 
@@ -33,10 +33,10 @@ export default function GamePage() {
   const router = useRouter();
   const params = useParams();
   const { toast } = useToast();
-  
+
   const gameId = params.gameId as string;
   const gameConfig = gameConfigs[gameId];
-  
+
   const [gameState, setGameState] = useState<GameState>('ready');
   const [currentStimulus, setCurrentStimulus] = useState<GameStimulus | null>(null);
   const [timeRemaining, setTimeRemaining] = useState(0);
@@ -60,7 +60,7 @@ export default function GamePage() {
       router.push('/games');
       return;
     }
-    
+
     setTimeRemaining(gameConfig.duration);
   }, [gameConfig, router]);
 
@@ -68,23 +68,23 @@ export default function GamePage() {
   useEffect(() => {
     if (gameState === 'playing') {
       console.log('Game state changed to playing, starting stimulus scheduling...');
-      
+
       const startStimulus = () => {
         const delay = 1000; // 1초 후 첫 자극 시작
-        
+
         const timeout = setTimeout(() => {
           if (gameState !== 'playing') return;
-          
+
           const isTarget = Math.random() < gameConfig.targetProbability;
           const stimulus = generateStimulus(gameConfig, isTarget);
-          
+
           console.log('First stimulus:', stimulus.type, stimulus.shape, stimulus.color);
-          
+
           setCurrentStimulus(stimulus);
           setStimuli(prev => [...prev, stimulus]);
           currentStimulusRef.current = stimulus;
           responseStartTime.current = Date.now();
-          
+
           // 자극 표시 시간 후 자동으로 숨기기 및 다음 자극 스케줄링
           setTimeout(() => {
             if (currentStimulusRef.current?.id === stimulus.id) {
@@ -92,7 +92,7 @@ export default function GamePage() {
               setResponses(prev => {
                 const existingResponse = prev.find(r => r.stimulusId === stimulus.id);
                 if (existingResponse) return prev;
-                
+
                 const response: GameResponse = {
                   stimulusId: stimulus.id,
                   responseTime: gameConfig.stimulusDuration,
@@ -100,26 +100,26 @@ export default function GamePage() {
                   responseType: stimulus.type === 'target' ? 'miss' : 'correctRejection',
                   timestamp: Date.now()
                 };
-                
+
                 setGameStats(prevStats => ({
                   ...prevStats,
-                  [response.responseType === 'miss' ? 'misses' : 'correctRejections']: 
+                  [response.responseType === 'miss' ? 'misses' : 'correctRejections']:
                     prevStats[response.responseType === 'miss' ? 'misses' : 'correctRejections'] + 1
                 }));
-                
+
                 return [...prev, response];
               });
-              
+
               setCurrentStimulus(null);
               currentStimulusRef.current = null;
             }
           }, gameConfig.stimulusDuration);
-          
+
         }, delay);
-        
+
         return timeout;
       };
-      
+
       const timeout = startStimulus();
       return () => clearTimeout(timeout);
     }
@@ -133,9 +133,9 @@ export default function GamePage() {
     setStimuli([]);
     setGameStats({ hits: 0, misses: 0, falseAlarms: 0, correctRejections: 0 });
     setCurrentStimulus(null);
-    
+
     gameStartTime.current = Date.now();
-    
+
     // 게임 타이머 시작
     const timer = setInterval(() => {
       setTimeRemaining((prev) => {
@@ -155,14 +155,14 @@ export default function GamePage() {
       const stimulusInterval = setInterval(() => {
         const isTarget = Math.random() < gameConfig.targetProbability;
         const stimulus = generateStimulus(gameConfig, isTarget);
-        
+
         console.log('Generating stimulus:', stimulus.type, stimulus.shape, stimulus.color);
-        
+
         setCurrentStimulus(stimulus);
         setStimuli(prev => [...prev, stimulus]);
         currentStimulusRef.current = stimulus;
         responseStartTime.current = Date.now();
-        
+
         // 자극 표시 시간 후 자동으로 숨기기
         setTimeout(() => {
           if (currentStimulusRef.current?.id === stimulus.id) {
@@ -170,7 +170,7 @@ export default function GamePage() {
             setResponses(prev => {
               const existingResponse = prev.find(r => r.stimulusId === stimulus.id);
               if (existingResponse) return prev;
-              
+
               const response: GameResponse = {
                 stimulusId: stimulus.id,
                 responseTime: gameConfig.stimulusDuration,
@@ -178,23 +178,23 @@ export default function GamePage() {
                 responseType: stimulus.type === 'target' ? 'miss' : 'correctRejection',
                 timestamp: Date.now()
               };
-              
+
               setGameStats(prevStats => ({
                 ...prevStats,
-                [response.responseType === 'miss' ? 'misses' : 'correctRejections']: 
+                [response.responseType === 'miss' ? 'misses' : 'correctRejections']:
                   prevStats[response.responseType === 'miss' ? 'misses' : 'correctRejections'] + 1
               }));
-              
+
               return [...prev, response];
             });
-            
+
             setCurrentStimulus(null);
             currentStimulusRef.current = null;
           }
         }, gameConfig.stimulusDuration);
-        
+
       }, gameConfig.stimulusInterval);
-      
+
       return () => clearInterval(stimulusInterval);
     }
   }, [gameState, gameConfig]);
@@ -203,31 +203,31 @@ export default function GamePage() {
   useEffect(() => {
     if (gameState === 'finished') {
       console.log('Game finished, processing results...');
-      
+
       if (stimulusTimeout.current) {
         clearTimeout(stimulusTimeout.current);
       }
       if (gameTimer.current) {
         clearInterval(gameTimer.current);
       }
-      
+
       setCurrentStimulus(null);
-      
+
       // 결과 계산 및 저장
       setTimeout(() => {
         const allResponses = [...responses];
         const totalStimuli = stimuli.length;
         const totalTargets = stimuli.filter(s => s.type === 'target').length;
         const totalNonTargets = stimuli.filter(s => s.type === 'nontarget').length;
-        
+
         const totalReactionTimes = allResponses
           .filter(r => r.responseType === 'hit')
           .map(r => r.responseTime);
-        
-        const avgReactionTime = totalReactionTimes.length > 0 
-          ? totalReactionTimes.reduce((a, b) => a + b, 0) / totalReactionTimes.length 
+
+        const avgReactionTime = totalReactionTimes.length > 0
+          ? totalReactionTimes.reduce((a, b) => a + b, 0) / totalReactionTimes.length
           : 0;
-        
+
         const result = calculateGameScore({
           gameId,
           duration: gameConfig.duration,
@@ -237,7 +237,7 @@ export default function GamePage() {
           ...gameStats,
           averageReactionTime: Math.round(avgReactionTime)
         });
-        
+
         // 결과를 로컬스토리지에 저장 (추후 DB에 저장)
         localStorage.setItem('game_result', JSON.stringify({
           ...result,
@@ -245,7 +245,7 @@ export default function GamePage() {
           responses: allResponses,
           stimuli
         }));
-        
+
         router.push('/games/result');
       }, 1000);
     }
@@ -253,42 +253,42 @@ export default function GamePage() {
 
   const handleStimulusClick = useCallback(() => {
     console.log('Click detected, current stimulus:', currentStimulusRef.current);
-    
+
     // 게임이 진행 중이 아니면 클릭 무시
     if (gameState !== 'playing') {
       console.log('Game not playing, ignoring click');
       return;
     }
-    
+
     // 현재 자극이 없으면 클릭 무시
     if (!currentStimulusRef.current) {
       console.log('No current stimulus, ignoring click');
       return;
     }
-    
+
     const stimulus = currentStimulusRef.current;
     const responseTime = Date.now() - responseStartTime.current;
-    
+
     console.log('Response time:', responseTime, 'ms');
-    
+
     // 반응 시간 제한 체크
     if (responseTime > gameConfig.responseTimeLimit) {
       console.log('Response time exceeded limit, ignoring click');
       return;
     }
-    
+
     // 이미 응답한 자극인지 체크 (중복 클릭 방지)
     const existingResponse = responses.find(r => r.stimulusId === stimulus.id);
     if (existingResponse) {
       console.log('Already responded to this stimulus, ignoring click');
       return;
     }
-    
+
     const isCorrect = stimulus.type === 'target';
     const responseType = isCorrect ? 'hit' : 'falseAlarm';
-    
+
     console.log('Processing response:', responseType, 'for stimulus:', stimulus.type);
-    
+
     const response: GameResponse = {
       stimulusId: stimulus.id,
       responseTime,
@@ -296,27 +296,27 @@ export default function GamePage() {
       responseType,
       timestamp: Date.now()
     };
-    
+
     setResponses(prev => {
       const newResponses = [...prev, response];
       console.log('Updated responses:', newResponses.length);
       return newResponses;
     });
-    
+
     setGameStats(prev => {
       const newStats = {
         ...prev,
-        [responseType === 'hit' ? 'hits' : 'falseAlarms']: 
+        [responseType === 'hit' ? 'hits' : 'falseAlarms']:
           prev[responseType === 'hit' ? 'hits' : 'falseAlarms'] + 1
       };
       console.log('Updated stats:', newStats);
       return newStats;
     });
-    
+
     // 자극 즉시 제거
     setCurrentStimulus(null);
     currentStimulusRef.current = null;
-    
+
     // 피드백 표시
     if (isCorrect) {
       toast({
@@ -347,7 +347,7 @@ export default function GamePage() {
 
   const resumeGame = () => {
     setGameState('playing');
-    
+
     const timer = setInterval(() => {
       setTimeRemaining((prev) => {
         if (prev <= 1) {
@@ -367,7 +367,7 @@ export default function GamePage() {
     setResponses([]);
     setStimuli([]);
     setGameStats({ hits: 0, misses: 0, falseAlarms: 0, correctRejections: 0 });
-    
+
     if (stimulusTimeout.current) {
       clearTimeout(stimulusTimeout.current);
     }
@@ -382,7 +382,7 @@ export default function GamePage() {
 
   const progress = ((gameConfig.duration - timeRemaining) / gameConfig.duration) * 100;
   const totalResponses = gameStats.hits + gameStats.misses + gameStats.falseAlarms + gameStats.correctRejections;
-  const currentAccuracy = totalResponses > 0 ? 
+  const currentAccuracy = totalResponses > 0 ?
     Math.round(((gameStats.hits + gameStats.correctRejections) / totalResponses) * 100) : 0;
 
   return (
@@ -395,8 +395,8 @@ export default function GamePage() {
               <h1 className="text-2xl font-bold text-gray-900">{gameConfig.name}</h1>
               <p className="text-gray-600">{gameConfig.description}</p>
             </div>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => router.push('/games')}
               className="gap-2"
             >
@@ -414,7 +414,7 @@ export default function GamePage() {
                 <div className="text-xs text-gray-600">남은 시간</div>
               </CardContent>
             </Card>
-            
+
             <Card className="bg-white border-gray-200">
               <CardContent className="p-4 text-center">
                 <Target className="w-6 h-6 mx-auto mb-2 text-green-600" />
@@ -422,7 +422,7 @@ export default function GamePage() {
                 <div className="text-xs text-gray-600">정답</div>
               </CardContent>
             </Card>
-            
+
             <Card className="bg-white border-gray-200">
               <CardContent className="p-4 text-center">
                 <Zap className="w-6 h-6 mx-auto mb-2 text-red-600" />
@@ -430,7 +430,7 @@ export default function GamePage() {
                 <div className="text-xs text-gray-600">오답</div>
               </CardContent>
             </Card>
-            
+
             <Card className="bg-white border-gray-200">
               <CardContent className="p-4 text-center">
                 <div className="text-xl font-bold text-gray-900">{currentAccuracy}%</div>
@@ -458,7 +458,7 @@ export default function GamePage() {
                     </Button>
                   </div>
                 )}
-                
+
                 {gameState === 'playing' && currentStimulus && (
                   <div className="relative">
                     <div onClick={handleStimulusClick} className="cursor-pointer">
@@ -471,14 +471,14 @@ export default function GamePage() {
                     </div>
                   </div>
                 )}
-                
+
                 {gameState === 'playing' && !currentStimulus && (
                   <div className="text-center text-gray-500">
                     <div className="w-4 h-4 bg-gray-400 rounded-full mx-auto mb-2"></div>
                     <div className="text-sm">대기 중...</div>
                   </div>
                 )}
-                
+
                 {gameState === 'paused' && (
                   <div className="text-center">
                     <h2 className="text-2xl font-bold mb-4 text-gray-900">게임 일시정지</h2>
@@ -488,7 +488,7 @@ export default function GamePage() {
                     </Button>
                   </div>
                 )}
-                
+
                 {gameState === 'finished' && (
                   <div className="text-center">
                     <h2 className="text-3xl font-bold mb-4 text-gray-900">게임 완료! 🎉</h2>
@@ -507,7 +507,7 @@ export default function GamePage() {
                 일시정지
               </Button>
             )}
-            
+
             {(gameState === 'ready' || gameState === 'paused') && (
               <Button onClick={resetGame} variant="outline" className="gap-2">
                 <RotateCcw className="w-4 h-4" />
@@ -524,68 +524,73 @@ export default function GamePage() {
 // 자극 표시 컴포넌트
 function StimulusDisplay({ stimulus }: { stimulus: GameStimulus }) {
   const getShapeComponent = () => {
-    const size = 80;
+    const size = 100; // 크기를 더 크게 해서 클릭하기 쉽게
     const color = stimulus.color || 'blue';
-    
+
     const colorMap = {
       red: '#ef4444',
-      blue: '#3b82f6', 
+      blue: '#3b82f6',
       green: '#22c55e',
       yellow: '#eab308',
       purple: '#a855f7'
     };
-    
+
     const fillColor = colorMap[color as keyof typeof colorMap] || '#3b82f6';
-    
+
     switch (stimulus.shape) {
       case 'circle':
         return (
-          <div 
-            className="rounded-full border-4 border-gray-300 shadow-xl" 
-            style={{ 
-              width: size, 
-              height: size, 
-              backgroundColor: fillColor 
-            }} 
+          <div
+            className="rounded-full border-4 border-gray-300 shadow-xl hover:scale-110 transition-transform duration-200"
+            style={{
+              width: size,
+              height: size,
+              backgroundColor: fillColor
+            }}
           />
         );
       case 'square':
         return (
-          <div 
-            className="border-4 border-gray-300 shadow-xl" 
-            style={{ 
-              width: size, 
-              height: size, 
-              backgroundColor: fillColor 
-            }} 
+          <div
+            className="border-4 border-gray-300 shadow-xl hover:scale-110 transition-transform duration-200"
+            style={{
+              width: size,
+              height: size,
+              backgroundColor: fillColor
+            }}
           />
         );
       case 'triangle':
         return (
-          <div 
-            className="shadow-xl"
-            style={{ 
-              width: 0, 
+          <div
+            className="shadow-xl hover:scale-110 transition-transform duration-200"
+            style={{
+              width: 0,
               height: 0,
-              borderLeft: `${size/2}px solid transparent`,
-              borderRight: `${size/2}px solid transparent`,
+              borderLeft: `${size / 2}px solid transparent`,
+              borderRight: `${size / 2}px solid transparent`,
               borderBottom: `${size}px solid ${fillColor}`,
               backgroundColor: 'transparent',
               filter: 'drop-shadow(0 10px 8px rgb(0 0 0 / 0.04)) drop-shadow(0 4px 3px rgb(0 0 0 / 0.1))'
-            }} 
+            }}
           />
         );
       case 'star':
         return (
-          <div className="text-6xl" style={{ color: fillColor }}>⭐</div>
+          <div
+            className="text-8xl hover:scale-110 transition-transform duration-200"
+            style={{ color: fillColor }}
+          >
+            ⭐
+          </div>
         );
       default:
-        return <div className="w-20 h-20 bg-blue-500 rounded" />;
+        return <div className="w-20 h-20 bg-blue-500 rounded hover:scale-110 transition-transform duration-200" />;
     }
   };
-  
+
   return (
-    <div className="flex items-center justify-center animate-bounce">
+    <div className="flex items-center justify-center animate-pulse">
       {getShapeComponent()}
     </div>
   );
