@@ -520,6 +520,37 @@ export default function MonsterLunchboxGame() {
     return () => clearInterval(timer);
   }, [isPlaying]);
 
+  // 캔버스 초기화 및 크기 설정
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // 반응형 캔버스 크기 설정
+    const updateCanvasSize = () => {
+      const container = canvas.parentElement;
+      if (container) {
+        const containerWidth = container.clientWidth;
+        const aspectRatio = 800 / 400; // 원하는 가로:세로 비율
+        
+        canvas.width = Math.min(containerWidth - 32, 800); // 패딩 고려
+        canvas.height = canvas.width / aspectRatio;
+        
+        // CSS 크기도 동일하게 설정
+        canvas.style.width = canvas.width + 'px';
+        canvas.style.height = canvas.height + 'px';
+        
+        render();
+      }
+    };
+
+    updateCanvasSize();
+    window.addEventListener('resize', updateCanvasSize);
+    
+    return () => {
+      window.removeEventListener('resize', updateCanvasSize);
+    };
+  }, [render]);
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -637,11 +668,8 @@ export default function MonsterLunchboxGame() {
         <CardContent className="p-0">
           <canvas
             ref={canvasRef}
-            width={800}
-            height={400}
             onClick={handleCanvasClick}
-            className="w-full border-2 border-gray-200 rounded-lg cursor-pointer"
-            style={{ maxWidth: '100%', height: 'auto' }}
+            className="border-2 border-gray-200 rounded-lg cursor-pointer"
           />
         </CardContent>
       </Card>
