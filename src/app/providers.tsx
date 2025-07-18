@@ -8,6 +8,8 @@ import {
   QueryClientProvider,
 } from '@tanstack/react-query';
 import { ThemeProvider } from 'next-themes';
+import { useEffect } from 'react';
+import { AuthProvider } from '@/contexts/auth-context';
 
 function makeQueryClient() {
   return new QueryClient({
@@ -44,6 +46,22 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   //       render if it suspends and there is no boundary
   const queryClient = getQueryClient();
 
+  // Register service worker for PWA
+  useEffect(() => {
+    if ('serviceWorker' in navigator && window.location.hostname !== 'localhost') {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').then(
+          (registration) => {
+            console.log('ServiceWorker registration successful:', registration.scope);
+          },
+          (err) => {
+            console.log('ServiceWorker registration failed:', err);
+          }
+        );
+      });
+    }
+  }, []);
+
   return (
     <ThemeProvider
       attribute="class"
@@ -51,7 +69,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       enableSystem
       disableTransitionOnChange
     >
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>{children}</AuthProvider>
+      </QueryClientProvider>
     </ThemeProvider>
   );
 }

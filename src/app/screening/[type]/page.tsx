@@ -1,0 +1,228 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter, useParams } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
+import { ArrowLeft, ArrowRight, CheckCircle } from 'lucide-react';
+import { useAuth } from '@/contexts/auth-context';
+import { 
+  screeningQuestions, 
+  simplifiedQuestions, 
+  responseOptions, 
+  calculateScreeningScore 
+} from '@/data/screening-questions';
+import { createClient } from '@/lib/supabase/client';
+import { useToast } from '@/hooks/use-toast';
+
+export default function ScreeningTestPage() {
+  const { user } = useAuth();
+  const router = useRouter();
+  const params = useParams();
+  const { toast } = useToast();
+  const supabase = createClient();
+  
+  const testType = params.type as 'lower' | 'upper';
+  const questions = testType === 'lower' ? simplifiedQuestions : screeningQuestions;
+  
+  const [currentQuestion, setCurrentQuestion] = useState(0);
+  const [responses, setResponses] = useState<number[]>(new Array(questions.length).fill(-1));
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!user) {
+      router.push('/auth/login');
+    }
+  }, [user, router]);
+
+  const handleResponse = (value: number) => {
+    const newResponses = [...responses];
+    newResponses[currentQuestion] = value;
+    setResponses(newResponses);
+  };
+
+  const nextQuestion = () => {
+    if (currentQuestion < questions.length - 1) {
+      setCurrentQuestion(currentQuestion + 1);
+    }
+  };
+
+  const prevQuestion = () => {
+    if (currentQuestion > 0) {
+      setCurrentQuestion(currentQuestion - 1);
+    }
+  };
+
+  const submitTest = async () => {
+    if (!user) return;
+    
+    setLoading(true);
+    try {
+      // 점수 계산
+      const score = calculateScreeningScore(responses);
+      
+      // 카테고리별 점수 계산
+      const attentionQuestions = questions.filter(q => q.category === 'attention');
+      const hyperactivityQuestions = questions.filter(q => q.category === 'hyperactivity');
+      const impulsivityQuestions = questions.filter(q => q.category === 'impulsivity');
+      
+      const attentionScore = attentionQuestions.reduce((sum, q, index) => {
+        const questionIndex = questions.findIndex(qq => qq.id === q.id);
+        return sum + responses[questionIndex];
+      }, 0);
+      
+      const hyperactivityScore = hyperactivityQuestions.reduce((sum, q, index) => {
+        const questionIndex = questions.findIndex(qq => qq.id === q.id);
+        return sum + responses[questionIndex];
+      }, 0);
+      
+      const impulsivityScore = impulsivityQuestions.reduce((sum, q, index) => {
+        const questionIndex = questions.findIndex(qq => qq.id === q.id);
+        return sum + responses[questionIndex];
+      }, 0);
+
+      // 결과를 데이터베이스에 저장 (실제로는 child_profiles가 있어야 함)
+      // 임시로 로컬스토리지에 저장
+      const result = {
+        testType,
+        totalScore: score.total,
+        attentionScore,
+        hyperactivityScore,
+        impulsivityScore,
+        riskLevel: score.riskLevel,
+        completedAt: new Date().toISOString(),
+        responses
+      };
+      
+      localStorage.setItem('screening_result', JSON.stringify(result));
+      
+      toast({
+        title: '테스트 완료!',
+        description: '결과 페이지로 이동합니다.',
+      });
+      
+      router.push('/screening/result');
+      
+    } catch (error: any) {
+      toast({
+        title: '저장 실패',
+        description: error.message || '결과 저장 중 오류가 발생했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const progress = ((currentQuestion + 1) / questions.length) * 100;
+  const currentQuestionData = questions[currentQuestion];
+  const currentResponse = responses[currentQuestion];
+  const isAnswered = currentResponse !== -1;
+  const isLastQuestion = currentQuestion === questions.length - 1;
+  const allAnswered = responses.every(r => r !== -1);
+
+  if (!user) {
+    return <div>로그인이 필요합니다...</div>;
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-8">
+      <div className="container mx-auto px-4">
+        <div className="max-w-2xl mx-auto">
+          {/* Header */}
+          <div className="text-center mb-6">
+            <Badge variant="outline" className="mb-4">
+              {testType === 'lower' ? '초등 저학년' : '초등 고학년'} 테스트
+            </Badge>
+            <h1 className="text-2xl font-bold mb-2">ADHD 스크리닝 테스트</h1>
+            <div className="flex items-center justify-center gap-4 text-sm text-gray-600">
+              <span>질문 {currentQuestion + 1} / {questions.length}</span>
+              <Progress value={progress} className="w-32" />
+              <span>{Math.round(progress)}% 완료</span>
+            </div>
+          </div>
+
+          {/* Question Card */}
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle className="text-lg">
+                {currentQuestionData.text}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {responseOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => handleResponse(option.value)}
+                    className={`
+                      w-full p-4 text-left rounded-lg border-2 transition-all
+                      ${currentResponse === option.value 
+                        ? 'border-blue-500 bg-blue-50' 
+                        : 'border-gray-200 hover:border-gray-300'
+                      }
+                      ${option.color}
+                    `}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">{option.label}</span>
+                      {currentResponse === option.value && (
+                        <CheckCircle className="w-5 h-5 text-blue-600" />
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Navigation */}
+          <div className="flex justify-between items-center">
+            <Button
+              variant="outline"
+              onClick={prevQuestion}
+              disabled={currentQuestion === 0}
+              className="gap-2"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              이전
+            </Button>
+
+            <div className="text-sm text-gray-500">
+              {testType === 'lower' ? '보호자님과 함께 답해주세요' : '솔직하게 답변해주세요'}
+            </div>
+
+            {isLastQuestion ? (
+              <Button
+                onClick={submitTest}
+                disabled={!allAnswered || loading}
+                className="gap-2"
+              >
+                {loading ? '저장 중...' : '테스트 완료'}
+                <CheckCircle className="w-4 h-4" />
+              </Button>
+            ) : (
+              <Button
+                onClick={nextQuestion}
+                disabled={!isAnswered}
+                className="gap-2"
+              >
+                다음
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+
+          {/* Help Text */}
+          <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+            <p className="text-sm text-blue-700">
+              💡 <strong>답변 방법:</strong> 최근 6개월 동안의 아이 모습을 생각하며 가장 적절한 답을 선택해주세요.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
