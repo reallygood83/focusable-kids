@@ -218,13 +218,18 @@ export default function FireflyCatcherGame() {
       ctx.textBaseline = 'middle';
       ctx.fillText(data.emoji, insect.x, insect.y);
 
-      // 히트박스 시각화 (개발용 - 실제로는 제거)
-      if (process.env.NODE_ENV === 'development') {
-        ctx.strokeStyle = data.color + '40';
-        ctx.beginPath();
-        ctx.arc(insect.x, insect.y, insect.size, 0, Math.PI * 2);
-        ctx.stroke();
-      }
+      // 히트박스 시각화 (디버깅용)
+      ctx.strokeStyle = '#ff000080';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(insect.x, insect.y, insect.size * 1.5, 0, Math.PI * 2); // 실제 히트박스 크기
+      ctx.stroke();
+      
+      // 곤충 중심점 표시
+      ctx.fillStyle = '#ff0000';
+      ctx.beginPath();
+      ctx.arc(insect.x, insect.y, 3, 0, Math.PI * 2);
+      ctx.fill();
     });
   }, [insects]);
 
@@ -236,27 +241,52 @@ export default function FireflyCatcherGame() {
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
     
-    // 캔버스의 실제 크기에 맞게 좌표 변환
-    const clickX = (event.clientX - rect.left) * scaleX / (window.devicePixelRatio || 1);
-    const clickY = (event.clientY - rect.top) * scaleY / (window.devicePixelRatio || 1);
+    // 간단한 좌표 변환 (CSS 픽셀 기준)
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+    
+    // 캔버스 CSS 크기에 맞게 스케일링
+    const scaleX = parseFloat(canvas.style.width) / rect.width;
+    const scaleY = parseFloat(canvas.style.height) / rect.height;
+    
+    const scaledX = clickX * scaleX;
+    const scaledY = clickY * scaleY;
+    
+    console.log('클릭 위치:', { clickX, clickY, scaledX, scaledY });
+    console.log('캔버스 정보:', { 
+      rectWidth: rect.width, 
+      rectHeight: rect.height,
+      styleWidth: canvas.style.width,
+      styleHeight: canvas.style.height,
+      canvasWidth: canvas.width,
+      canvasHeight: canvas.height
+    });
 
     let hitInsect: Insect | null = null;
     let minDistance = Infinity;
 
-    // 가장 가까운 곤충 찾기
+    // 가장 가까운 곤충 찾기 (CSS 크기 기준으로 비교)
     insects.forEach(insect => {
       const distance = Math.sqrt(
-        Math.pow(clickX - insect.x, 2) + Math.pow(clickY - insect.y, 2)
+        Math.pow(scaledX - insect.x, 2) + Math.pow(scaledY - insect.y, 2)
       );
       
-      if (distance <= insect.size && distance < minDistance) {
+      console.log(`곤충 ${insect.id}: 위치(${insect.x}, ${insect.y}), 거리: ${distance}, 크기: ${insect.size}`);
+      
+      // 히트박스를 더 크게 설정 (터치하기 쉽게)
+      const hitRadius = insect.size * 1.5;
+      
+      if (distance <= hitRadius && distance < minDistance) {
         hitInsect = insect;
         minDistance = distance;
+        console.log('곤충 히트!', insect);
       }
     });
+    
+    if (!hitInsect) {
+      console.log('클릭했지만 곤충을 히트하지 못함');
+    }
 
     if (hitInsect) {
       const reactionTime = Date.now() - hitInsect.createdAt;
