@@ -128,15 +128,24 @@ export default function MonsterLunchboxGame() {
   const playOrderAudio = useCallback((orderText: string) => {
     if (!speechSynthesis.current) return;
 
-    speechSynthesis.current.cancel(); // 이전 음성 취소
-    
-    const utterance = new SpeechSynthesisUtterance(orderText);
-    utterance.lang = 'ko-KR';
-    utterance.rate = 0.8;
-    utterance.pitch = 1.2; // 몬스터 목소리처럼 높게
-    utterance.volume = 0.8;
-    
-    speechSynthesis.current.speak(utterance);
+    try {
+      speechSynthesis.current.cancel(); // 이전 음성 취소
+      
+      const utterance = new SpeechSynthesisUtterance(orderText);
+      utterance.lang = 'ko-KR';
+      utterance.rate = 0.8;
+      utterance.pitch = 1.2; // 몬스터 목소리처럼 높게
+      utterance.volume = 0.8;
+      
+      // 에러 처리
+      utterance.onerror = (event) => {
+        console.warn('음성 재생 중 오류 발생:', event);
+      };
+      
+      speechSynthesis.current.speak(utterance);
+    } catch (error) {
+      console.warn('음성 합성을 지원하지 않는 브라우저입니다:', error);
+    }
   }, []);
 
   // 컨베이어 벨트 음식 생성

@@ -104,9 +104,9 @@ export default function FickleSorterGame() {
   };
 
   // 도형 생성
-  const createShape = useCallback((): Shape => {
+  const createShape = useCallback((): Shape | null => {
     const canvas = canvasRef.current;
-    if (!canvas) return null as any;
+    if (!canvas) return null;
 
     const shape = SHAPES[Math.floor(Math.random() * SHAPES.length)];
     const color = COLORS[Math.floor(Math.random() * COLORS.length)];
