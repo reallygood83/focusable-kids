@@ -399,8 +399,8 @@ export default function SpaceDeliveryGame() {
     }
   }, [planetsOnCanvas, gamePhase, currentRound]);
 
-  // 캔버스 클릭 처리
-  const handleCanvasClick = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
+  // 캔버스 클릭 처리 (터치 이벤트 지원)
+  const handleCanvasClick = useCallback((event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     if (gamePhase !== 'input') return;
 
     const canvas = canvasRef.current;
@@ -410,9 +410,13 @@ export default function SpaceDeliveryGame() {
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     
+    // 터치 이벤트와 마우스 이벤트 모두 지원
+    const clientX = 'touches' in event ? event.touches[0].clientX : event.clientX;
+    const clientY = 'touches' in event ? event.touches[0].clientY : event.clientY;
+    
     // 캔버스의 실제 크기에 맞게 좌표 변환
-    const clickX = (event.clientX - rect.left) * scaleX / (window.devicePixelRatio || 1);
-    const clickY = (event.clientY - rect.top) * scaleY / (window.devicePixelRatio || 1);
+    const clickX = (clientX - rect.left) * scaleX / (window.devicePixelRatio || 1);
+    const clickY = (clientY - rect.top) * scaleY / (window.devicePixelRatio || 1);
 
     // 클릭된 행성 찾기
     const clickedPlanet = planetsOnCanvas.find(planet => {
@@ -673,7 +677,8 @@ export default function SpaceDeliveryGame() {
           <canvas
             ref={canvasRef}
             onClick={handleCanvasClick}
-            className="border-2 border-gray-200 rounded-lg cursor-pointer"
+            onTouchStart={handleCanvasClick}
+            className="border-2 border-gray-200 rounded-lg cursor-pointer touch-none"
           />
         </CardContent>
       </Card>

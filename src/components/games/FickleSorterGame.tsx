@@ -16,6 +16,9 @@ interface Shape {
   y: number;
   speed: number;
   isActive: boolean;
+  isDragging?: boolean;
+  dragOffsetX?: number;
+  dragOffsetY?: number;
 }
 
 interface SortingRule {
@@ -66,6 +69,12 @@ export default function FickleSorterGame() {
   const [ruleChangeCountdown, setRuleChangeCountdown] = useState(30);
   const [feedback, setFeedback] = useState<string>('');
   const [isRuleChanging, setIsRuleChanging] = useState(false);
+  
+  // 드래그 상태 관리
+  const [draggedShape, setDraggedShape] = useState<Shape | null>(null);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [leftBasketHover, setLeftBasketHover] = useState(false);
+  const [rightBasketHover, setRightBasketHover] = useState(false);
 
   const ruleStartTime = useRef<number>(0);
   const shapeStartTime = useRef<number>(0);
@@ -123,10 +132,14 @@ export default function FickleSorterGame() {
 
     setShapes(prev => 
       prev.filter(shape => {
-        shape.y += shape.speed;
+        // 드래그 중인 도형은 위치 업데이트 하지 않음
+        if (!draggedShape || shape.id !== draggedShape.id) {
+          shape.y += shape.speed;
+        }
         
         // 화면 밖으로 나가면 제거 (놓친 것으로 처리)
-        if (shape.y > canvas.height + 50) {
+        // 단, 드래그 중인 도형은 제외
+        if (shape.y > canvas.height + 50 && (!draggedShape || shape.id !== draggedShape.id)) {
           setGameStats(prevStats => ({
             ...prevStats,
             totalShapes: prevStats.totalShapes + 1,
@@ -138,7 +151,7 @@ export default function FickleSorterGame() {
         return true;
       })
     );
-  }, []);
+  }, [draggedShape]);
 
   // 규칙 변경
   const changeRule = useCallback(() => {
@@ -224,79 +237,139 @@ export default function FickleSorterGame() {
     setTimeout(() => setFeedback(''), 1000);
   }, [shapes, currentRule.type, difficulty]);
 
-  // 캔버스 클릭 처리
-  const handleCanvasClick = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isPlaying) return;
-
+  // 좌표 변환 헬퍼 함수
+  const getCanvasCoordinates = useCallback((event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return { x: 0, y: 0 };
 
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     
-    // 캔버스의 실제 크기에 맞게 좌표 변환
-    const clickX = (event.clientX - rect.left) * scaleX / (window.devicePixelRatio || 1);
-    const clickY = (event.clientY - rect.top) * scaleY / (window.devicePixelRatio || 1);
+    const clientX = 'touches' in event ? event.touches[0].clientX : event.clientX;
+    const clientY = 'touches' in event ? event.touches[0].clientY : event.clientY;
+    
+    return {
+      x: (clientX - rect.left) * scaleX / (window.devicePixelRatio || 1),
+      y: (clientY - rect.top) * scaleY / (window.devicePixelRatio || 1)
+    };
+  }, []);
 
-    // 분류 영역 클릭 확인 (하단)
+  // 바구니 영역 체크 함수
+  const getBasketArea = useCallback((x: number, y: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+
     const bottomAreaHeight = 120;
-    if (clickY > canvas.height - bottomAreaHeight) {
-      // 색깔 분류 영역 (왼쪽)
-      if (clickX < canvas.width / 2) {
-        // 가장 가까운 도형 찾기
-        let closestShape: Shape | null = null;
-        let minDistance = Infinity;
-        
-        shapes.forEach(shape => {
-          const distance = Math.sqrt(
-            Math.pow(clickX - shape.x, 2) + Math.pow(clickY - shape.y, 2)
-          );
-          if (distance < minDistance && distance < 100) {
-            minDistance = distance;
-            closestShape = shape;
-          }
-        });
-        
-        if (closestShape) {
-          handleShapeSort(closestShape.id, 'color');
-        }
-      } 
-      // 모양 분류 영역 (오른쪽)
-      else {
-        let closestShape: Shape | null = null;
-        let minDistance = Infinity;
-        
-        shapes.forEach(shape => {
-          const distance = Math.sqrt(
-            Math.pow(clickX - shape.x, 2) + Math.pow(clickY - shape.y, 2)
-          );
-          if (distance < minDistance && distance < 100) {
-            minDistance = distance;
-            closestShape = shape;
-          }
-        });
-        
-        if (closestShape) {
-          handleShapeSort(closestShape.id, 'shape');
-        }
-      }
-    } else {
-      // 도형 직접 클릭
-      const clickedShape = shapes.find(shape => {
-        const distance = Math.sqrt(
-          Math.pow(clickX - shape.x, 2) + Math.pow(clickY - shape.y, 2)
-        );
-        return distance <= 30;
-      });
-
-      if (clickedShape) {
-        // 드래그 시작 (간단화를 위해 즉시 분류 영역으로 이동)
-        const shouldSortByColor = clickX < canvas.width / 2;
-        handleShapeSort(clickedShape.id, shouldSortByColor ? 'color' : 'shape');
+    const bottomY = canvas.height - bottomAreaHeight;
+    
+    if (y > bottomY && y < canvas.height - 10) {
+      if (x > 10 && x < canvas.width / 2 - 15) {
+        return 'left'; // 색깔 분류 바구니
+      } else if (x > canvas.width / 2 + 5 && x < canvas.width - 15) {
+        return 'right'; // 모양 분류 바구니
       }
     }
-  }, [isPlaying, shapes, handleShapeSort]);
+    return null;
+  }, []);
+
+  // 마우스 다운 (드래그 시작)
+  const handleMouseDown = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isPlaying) return;
+
+    const { x, y } = getCanvasCoordinates(event);
+    
+    // 도형 찾기
+    const clickedShape = shapes.find(shape => {
+      const distance = Math.sqrt(
+        Math.pow(x - shape.x, 2) + Math.pow(y - shape.y, 2)
+      );
+      return distance <= 30 && !shape.isDragging;
+    });
+
+    if (clickedShape) {
+      setDraggedShape({
+        ...clickedShape,
+        isDragging: true,
+        dragOffsetX: x - clickedShape.x,
+        dragOffsetY: y - clickedShape.y
+      });
+      setMousePos({ x, y });
+    }
+  }, [isPlaying, shapes, getCanvasCoordinates]);
+
+  // 마우스 이동 (드래그 중)
+  const handleMouseMove = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
+    const { x, y } = getCanvasCoordinates(event);
+    setMousePos({ x, y });
+
+    if (draggedShape) {
+      // 바구니 hover 체크
+      const basketArea = getBasketArea(x, y);
+      setLeftBasketHover(basketArea === 'left');
+      setRightBasketHover(basketArea === 'right');
+    }
+  }, [draggedShape, getCanvasCoordinates, getBasketArea]);
+
+  // 마우스 업 (드래그 끝)
+  const handleMouseUp = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!draggedShape) return;
+
+    const { x, y } = getCanvasCoordinates(event);
+    const basketArea = getBasketArea(x, y);
+
+    if (basketArea) {
+      // 바구니에 드롭됨
+      const sortType = basketArea === 'left' ? 'color' : 'shape';
+      handleShapeSort(draggedShape.id, sortType);
+    } else {
+      // 바구니 밖에 드롭됨 - 도형을 원래 위치로 복원
+      setShapes(prev => prev.map(shape => 
+        shape.id === draggedShape.id 
+          ? { ...shape, isDragging: false }
+          : shape
+      ));
+    }
+
+    setDraggedShape(null);
+    setLeftBasketHover(false);
+    setRightBasketHover(false);
+  }, [draggedShape, getCanvasCoordinates, getBasketArea, handleShapeSort]);
+
+  // 터치 이벤트 처리
+  const handleTouchStart = useCallback((event: React.TouchEvent<HTMLCanvasElement>) => {
+    event.preventDefault();
+    handleMouseDown(event as any);
+  }, [handleMouseDown]);
+
+  const handleTouchMove = useCallback((event: React.TouchEvent<HTMLCanvasElement>) => {
+    event.preventDefault();
+    handleMouseMove(event as any);
+  }, [handleMouseMove]);
+
+  const handleTouchEnd = useCallback((event: React.TouchEvent<HTMLCanvasElement>) => {
+    event.preventDefault();
+    handleMouseUp(event as any);
+  }, [handleMouseUp]);
+
+  // roundRect polyfill for older browsers
+  const drawRoundRect = (ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) => {
+    if (typeof ctx.roundRect === 'function') {
+      ctx.roundRect(x, y, width, height, radius);
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + width - radius, y);
+      ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+      ctx.lineTo(x + width, y + height - radius);
+      ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+      ctx.lineTo(x + radius, y + height);
+      ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.closePath();
+    }
+  };
 
   // 캔버스 렌더링
   const render = useCallback(() => {
@@ -311,21 +384,32 @@ export default function FickleSorterGame() {
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // 분류 영역 그리기
+    // 바구니 영역 그리기
     const bottomAreaHeight = 120;
     const bottomY = canvas.height - bottomAreaHeight;
     
-    // 색깔 분류 영역 (왼쪽)
-    ctx.fillStyle = currentRule.type === 'color' ? '#e8f5e8' : '#f5f5f5';
-    ctx.strokeStyle = currentRule.type === 'color' ? '#4caf50' : '#999999';
-    ctx.lineWidth = 3;
-    ctx.fillRect(10, bottomY, canvas.width / 2 - 15, bottomAreaHeight - 10);
-    ctx.strokeRect(10, bottomY, canvas.width / 2 - 15, bottomAreaHeight - 10);
+    // 왼쪽 바구니 (색깔 분류)
+    const leftBasketActive = currentRule.type === 'color' || leftBasketHover;
+    ctx.fillStyle = leftBasketActive ? (leftBasketHover ? '#c8e6c9' : '#e8f5e8') : '#f5f5f5';
+    ctx.strokeStyle = leftBasketActive ? (leftBasketHover ? '#2e7d32' : '#4caf50') : '#999999';
+    ctx.lineWidth = leftBasketHover ? 4 : 3;
     
+    // 바구니 모양 그리기
+    const leftBasketX = 10;
+    const leftBasketY = bottomY;
+    const leftBasketWidth = canvas.width / 2 - 15;
+    const leftBasketHeight = bottomAreaHeight - 10;
+    
+    // 바구니 테두리 - 곡선으로 바구니 느낌
+    drawRoundRect(ctx, leftBasketX, leftBasketY, leftBasketWidth, leftBasketHeight, 15);
+    ctx.fill();
+    ctx.stroke();
+    
+    // 바구니 아이콘
     ctx.fillStyle = '#000000';
     ctx.font = 'bold 18px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('색깔별 분류', canvas.width / 4, bottomY + 25);
+    ctx.fillText('🧺 색깔별 분류', canvas.width / 4, bottomY + 25);
     
     // 색깔 예시
     const colorExamples = ['🟥', '🟦', '🟩', '🟡'];
@@ -334,16 +418,25 @@ export default function FickleSorterGame() {
       ctx.fillText(emoji, 40 + index * 40, bottomY + 60);
     });
 
-    // 모양 분류 영역 (오른쪽)
-    ctx.fillStyle = currentRule.type === 'shape' ? '#e8f5e8' : '#f5f5f5';
-    ctx.strokeStyle = currentRule.type === 'shape' ? '#4caf50' : '#999999';
-    ctx.fillRect(canvas.width / 2 + 5, bottomY, canvas.width / 2 - 15, bottomAreaHeight - 10);
-    ctx.strokeRect(canvas.width / 2 + 5, bottomY, canvas.width / 2 - 15, bottomAreaHeight - 10);
+    // 오른쪽 바구니 (모양 분류)
+    const rightBasketActive = currentRule.type === 'shape' || rightBasketHover;
+    ctx.fillStyle = rightBasketActive ? (rightBasketHover ? '#c8e6c9' : '#e8f5e8') : '#f5f5f5';
+    ctx.strokeStyle = rightBasketActive ? (rightBasketHover ? '#2e7d32' : '#4caf50') : '#999999';
+    ctx.lineWidth = rightBasketHover ? 4 : 3;
+    
+    const rightBasketX = canvas.width / 2 + 5;
+    const rightBasketY = bottomY;
+    const rightBasketWidth = canvas.width / 2 - 15;
+    const rightBasketHeight = bottomAreaHeight - 10;
+    
+    drawRoundRect(ctx, rightBasketX, rightBasketY, rightBasketWidth, rightBasketHeight, 15);
+    ctx.fill();
+    ctx.stroke();
     
     ctx.fillStyle = '#000000';
     ctx.font = 'bold 18px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('모양별 분류', canvas.width * 3 / 4, bottomY + 25);
+    ctx.fillText('🧺 모양별 분류', canvas.width * 3 / 4, bottomY + 25);
     
     // 모양 예시
     const shapeExamples = ['🟥', '🔴', '🔺'];
@@ -352,28 +445,74 @@ export default function FickleSorterGame() {
       ctx.fillText(emoji, canvas.width / 2 + 40 + index * 40, bottomY + 60);
     });
 
-    // 도형들 그리기
+    // 일반 도형들 그리기 (드래그 중이 아닌 것들)
     shapes.forEach(shape => {
-      ctx.font = '48px serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(shape.emoji, shape.x, shape.y);
-      
-      // 클릭 가능 영역 표시 (개발용)
-      if (process.env.NODE_ENV === 'development') {
-        ctx.strokeStyle = '#ff000040';
-        ctx.beginPath();
-        ctx.arc(shape.x, shape.y, 30, 0, Math.PI * 2);
-        ctx.stroke();
+      if (!draggedShape || shape.id !== draggedShape.id) {
+        // 드래그 중이 아닌 도형 그리기
+        ctx.font = '48px serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        // 그림자 효과
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+        ctx.shadowBlur = 5;
+        ctx.shadowOffsetX = 2;
+        ctx.shadowOffsetY = 2;
+        
+        ctx.fillText(shape.emoji, shape.x, shape.y);
+        
+        // 그림자 초기화
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
       }
     });
+
+    // 드래그 중인 도형 그리기 (마우스 위치에)
+    if (draggedShape) {
+      const dragX = mousePos.x - (draggedShape.dragOffsetX || 0);
+      const dragY = mousePos.y - (draggedShape.dragOffsetY || 0);
+      
+      ctx.font = '52px serif'; // 조금 더 크게
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      
+      // 드래그 중일 때 더 진한 그림자
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+      ctx.shadowBlur = 10;
+      ctx.shadowOffsetX = 3;
+      ctx.shadowOffsetY = 3;
+      
+      // 반투명 효과
+      ctx.globalAlpha = 0.8;
+      ctx.fillText(draggedShape.emoji, dragX, dragY);
+      ctx.globalAlpha = 1;
+      
+      // 그림자 초기화
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+      
+      // 드래그 가이드 선
+      ctx.strokeStyle = 'rgba(76, 175, 80, 0.5)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(draggedShape.x, draggedShape.y);
+      ctx.lineTo(dragX, dragY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
 
     // 현재 규칙 표시
     ctx.fillStyle = isRuleChanging ? '#ff6b6b' : '#4ecdc4';
     ctx.strokeStyle = isRuleChanging ? '#ff5252' : '#26a69a';
     ctx.lineWidth = 3;
-    ctx.fillRect(canvas.width / 2 - 150, 20, 300, 60);
-    ctx.strokeRect(canvas.width / 2 - 150, 20, 300, 60);
+    drawRoundRect(ctx, canvas.width / 2 - 150, 20, 300, 60, 10);
+    ctx.fill();
+    ctx.stroke();
     
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 24px Arial';
@@ -384,7 +523,15 @@ export default function FickleSorterGame() {
     ctx.fillStyle = ruleChangeCountdown <= 5 ? '#ff4444' : '#666666';
     ctx.font = 'bold 16px Arial';
     ctx.fillText(`다음 변경: ${ruleChangeCountdown}초`, canvas.width / 2, 100);
-  }, [shapes, currentRule, isRuleChanging, ruleChangeCountdown]);
+
+    // 드래그 안내 텍스트 (게임 시작 시)
+    if (isPlaying && gameStats.totalShapes === 0 && !draggedShape) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.font = 'bold 20px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('도형을 드래그해서 바구니에 넣어보세요!', canvas.width / 2, canvas.height / 2);
+    }
+  }, [shapes, currentRule, isRuleChanging, ruleChangeCountdown, draggedShape, mousePos, leftBasketHover, rightBasketHover, isPlaying, gameStats.totalShapes]);
 
   // 게임 초기화
   const initGame = useCallback(() => {
@@ -405,6 +552,13 @@ export default function FickleSorterGame() {
     setFeedback('');
     setIsRuleChanging(false);
     setTimeLeft(180);
+    
+    // 드래그 상태 초기화
+    setDraggedShape(null);
+    setLeftBasketHover(false);
+    setRightBasketHover(false);
+    setMousePos({ x: 0, y: 0 });
+    
     reactionTimes.current = [];
     adaptationTimes.current = [];
     ruleStartTime.current = Date.now();
@@ -570,10 +724,10 @@ export default function FickleSorterGame() {
               <div>
                 <h4 className="font-semibold mb-2">조작 방법</h4>
                 <ul className="space-y-1 text-sm">
-                  <li>• 떨어지는 도형을 클릭하세요</li>
-                  <li>• 왼쪽 영역: 색깔별 분류</li>
-                  <li>• 오른쪽 영역: 모양별 분류</li>
-                  <li>• 현재 규칙에 맞게 분류하세요!</li>
+                  <li>• 떨어지는 도형을 드래그하세요</li>
+                  <li>• 🧺 왼쪽 바구니: 색깔별 분류</li>
+                  <li>• 🧺 오른쪽 바구니: 모양별 분류</li>
+                  <li>• 현재 규칙에 맞는 바구니에 드롭!</li>
                 </ul>
               </div>
             </div>
@@ -652,8 +806,14 @@ export default function FickleSorterGame() {
         <CardContent className="p-0">
           <canvas
             ref={canvasRef}
-            onClick={handleCanvasClick}
-            className="border-2 border-gray-200 rounded-lg cursor-pointer"
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            className="border-2 border-gray-200 rounded-lg cursor-pointer touch-none"
+            style={{ cursor: draggedShape ? 'grabbing' : 'grab' }}
           />
         </CardContent>
       </Card>

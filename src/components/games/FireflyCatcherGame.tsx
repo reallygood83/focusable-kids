@@ -218,23 +218,11 @@ export default function FireflyCatcherGame() {
       ctx.textBaseline = 'middle';
       ctx.fillText(data.emoji, insect.x, insect.y);
 
-      // 히트박스 시각화 (디버깅용)
-      ctx.strokeStyle = '#ff000080';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(insect.x, insect.y, insect.size * 1.5, 0, Math.PI * 2); // 실제 히트박스 크기
-      ctx.stroke();
-      
-      // 곤충 중심점 표시
-      ctx.fillStyle = '#ff0000';
-      ctx.beginPath();
-      ctx.arc(insect.x, insect.y, 3, 0, Math.PI * 2);
-      ctx.fill();
     });
   }, [insects]);
 
   // 마우스/터치 클릭 처리
-  const handleCanvasClick = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleCanvasClick = useCallback((event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     if (!isPlaying) return;
 
     const canvas = canvasRef.current;
@@ -243,24 +231,23 @@ export default function FireflyCatcherGame() {
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     
-    // 클릭 위치를 캔버스 좌표계로 변환
-    const clickX = (event.clientX - rect.left) * (canvas.width / dpr) / rect.width;
-    const clickY = (event.clientY - rect.top) * (canvas.height / dpr) / rect.height;
+    // 터치 이벤트인 경우 첫 번째 터치 포인트 사용
+    let clientX: number;
+    let clientY: number;
     
-    console.log('클릭 위치:', { 
-      clientX: event.clientX, 
-      clientY: event.clientY,
-      rectLeft: rect.left,
-      rectTop: rect.top,
-      rectWidth: rect.width,
-      rectHeight: rect.height,
-      canvasWidth: canvas.width,
-      canvasHeight: canvas.height,
-      dpr,
-      clickX, 
-      clickY 
-    });
-
+    if ('touches' in event) {
+      if (event.touches.length === 0) return;
+      clientX = event.touches[0].clientX;
+      clientY = event.touches[0].clientY;
+    } else {
+      clientX = event.clientX;
+      clientY = event.clientY;
+    }
+    
+    // 클릭 위치를 캔버스 좌표계로 변환
+    const clickX = (clientX - rect.left) * (canvas.width / dpr) / rect.width;
+    const clickY = (clientY - rect.top) * (canvas.height / dpr) / rect.height;
+    
     let hitInsect: Insect | null = null;
     let minDistance = Infinity;
 
@@ -270,21 +257,14 @@ export default function FireflyCatcherGame() {
         Math.pow(clickX - insect.x, 2) + Math.pow(clickY - insect.y, 2)
       );
       
-      console.log(`곤충 ${insect.id}: 위치(${insect.x}, ${insect.y}), 거리: ${distance}, 크기: ${insect.size}`);
-      
       // 히트박스를 더 크게 설정 (터치하기 쉽게)
       const hitRadius = insect.size * 2;
       
       if (distance <= hitRadius && distance < minDistance) {
         hitInsect = insect;
         minDistance = distance;
-        console.log('곤충 히트!', insect);
       }
     });
-    
-    if (!hitInsect) {
-      console.log('클릭했지만 곤충을 히트하지 못함');
-    }
 
     if (hitInsect) {
       const reactionTime = Date.now() - hitInsect.createdAt;
@@ -522,7 +502,8 @@ export default function FireflyCatcherGame() {
           <canvas
             ref={canvasRef}
             onClick={handleCanvasClick}
-            className="border-2 border-gray-200 rounded-lg cursor-crosshair"
+            onTouchStart={handleCanvasClick}
+            className="border-2 border-gray-200 rounded-lg cursor-crosshair touch-none"
           />
         </CardContent>
       </Card>

@@ -271,7 +271,7 @@ export default function MonsterLunchboxGame() {
   }, [generateOrder, difficulty, playOrderAudio]);
 
   // 캔버스 클릭 처리
-  const handleCanvasClick = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleCanvasClick = useCallback((event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     if (!isPlaying) return;
 
     const canvas = canvasRef.current;
@@ -280,30 +280,37 @@ export default function MonsterLunchboxGame() {
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     
+    // 터치 이벤트인 경우 첫 번째 터치 포인트 사용
+    let clientX: number;
+    let clientY: number;
+    
+    if ('touches' in event) {
+      if (event.touches.length === 0) return;
+      clientX = event.touches[0].clientX;
+      clientY = event.touches[0].clientY;
+    } else {
+      clientX = event.clientX;
+      clientY = event.clientY;
+    }
+    
     // 클릭 위치를 캔버스 좌표계로 변환
-    const clickX = (event.clientX - rect.left) * (canvas.width / dpr) / rect.width;
-    const clickY = (event.clientY - rect.top) * (canvas.height / dpr) / rect.height;
-
-    console.log('음식 클릭:', { clickX, clickY, conveyorFoodsCount: conveyorFoods.length });
+    const clickX = (clientX - rect.left) * (canvas.width / dpr) / rect.width;
+    const clickY = (clientY - rect.top) * (canvas.height / dpr) / rect.height;
 
     // 컨베이어 벨트의 음식 클릭 확인
     const clickedFood = conveyorFoods.find(food => {
       const distance = Math.sqrt(
         Math.pow(clickX - food.x, 2) + Math.pow(clickY - food.y, 2)
       );
-      console.log(`음식 ${food.food.name}: 위치(${food.x}, ${food.y}), 거리: ${distance}`);
       return distance <= 40; // 클릭 가능 반경을 더 크게
     });
 
     if (clickedFood) {
-      console.log('음식 클릭 성공:', clickedFood.food.name);
       // 음식을 도시락에 담기
       addToLunchbox(clickedFood.food.id);
       
       // 컨베이어에서 제거
       setConveyorFoods(prev => prev.filter(f => f.id !== clickedFood.id));
-    } else {
-      console.log('음식을 클릭하지 못함');
     }
   }, [isPlaying, conveyorFoods, addToLunchbox]);
 
@@ -689,7 +696,8 @@ export default function MonsterLunchboxGame() {
           <canvas
             ref={canvasRef}
             onClick={handleCanvasClick}
-            className="border-2 border-gray-200 rounded-lg cursor-pointer"
+            onTouchStart={handleCanvasClick}
+            className="border-2 border-gray-200 rounded-lg cursor-pointer touch-none"
           />
         </CardContent>
       </Card>
