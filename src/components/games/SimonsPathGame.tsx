@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -13,9 +13,6 @@ interface Command {
   direction: 'left' | 'right';
   isSimonSays: boolean;
   timeShown: number;
-  playerResponse?: 'left' | 'right' | 'none';
-  isCorrect?: boolean;
-  reactionTime?: number;
 }
 
 interface GameStats {
@@ -23,17 +20,15 @@ interface GameStats {
   totalCommands: number;
   correctResponses: number;
   incorrectResponses: number;
-  timeoutResponses: number;
   accuracy: number;
   avgReactionTime: number;
   simonSaysFollowed: number;
-  simonSaysIgnored: number;
   nonSimonIgnored: number;
   nonSimonFollowed: number;
 }
 
 export default function SimonsPathGame() {
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [gameState, setGameState] = useState<'ready' | 'playing' | 'paused' | 'finished'>('ready');
   const [timeLeft, setTimeLeft] = useState(180); // 3분
   const [currentCommand, setCurrentCommand] = useState<Command | null>(null);
   const [gameStats, setGameStats] = useState<GameStats>({
@@ -41,44 +36,44 @@ export default function SimonsPathGame() {
     totalCommands: 0,
     correctResponses: 0,
     incorrectResponses: 0,
-    timeoutResponses: 0,
     accuracy: 0,
     avgReactionTime: 0,
     simonSaysFollowed: 0,
-    simonSaysIgnored: 0,
     nonSimonIgnored: 0,
     nonSimonFollowed: 0
   });
-  const [showInstructions, setShowInstructions] = useState(true);
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('easy');
   const [characterPosition, setCharacterPosition] = useState<'center' | 'left' | 'right'>('center');
   const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
+  const [commandProgress, setCommandProgress] = useState(0);
 
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const gameTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const commandTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const progressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const commandStartTime = useRef<number>(0);
   const reactionTimes = useRef<number[]>([]);
 
   // 난이도별 설정
   const difficultySettings = {
     easy: { 
-      commandInterval: 4000, 
+      commandInterval: 3000, 
       responseTime: 3000, 
-      simonSaysRatio: 0.7 // 70%가 Simon Says
+      simonSaysRatio: 0.7 
     },
     medium: { 
-      commandInterval: 3000, 
+      commandInterval: 2500, 
       responseTime: 2500, 
       simonSaysRatio: 0.6 
     },
     hard: { 
-      commandInterval: 2500, 
+      commandInterval: 2000, 
       responseTime: 2000, 
       simonSaysRatio: 0.5 
     }
   };
 
   // 명령어 생성
-  const generateCommand = useCallback((): Command => {
+  const generateCommand = (): Command => {
     const settings = difficultySettings[difficulty];
     const directions: Array<'left' | 'right'> = ['left', 'right'];
     const direction = directions[Math.floor(Math.random() * directions.length)];
@@ -96,130 +91,87 @@ export default function SimonsPathGame() {
       isSimonSays,
       timeShown: Date.now()
     };
-  }, [difficulty]);
+  };
 
   // 다음 명령어 표시
-  const showNextCommand = useCallback(() => {
+  const showNextCommand = () => {
+    console.log('🎯 Showing next command...');
     
-    if (!isPlaying) {
+    if (gameState !== 'playing') {
+      console.log('❌ Game not playing, skipping command');
       return;
     }
 
     const command = generateCommand();
+    console.log('📝 Generated command:', command.text, 'isSimonSays:', command.isSimonSays);
     
     setCurrentCommand(command);
     setIsWaitingForResponse(true);
+    setCommandProgress(0);
     commandStartTime.current = Date.now();
 
-    // 응답 시간 제한
+    // 프로그레스 바 애니메이션
     const settings = difficultySettings[difficulty];
-    
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-    
-    timeoutRef.current = setTimeout(() => {
+    const progressInterval = 50; // 50ms마다 업데이트
+    const totalSteps = settings.responseTime / progressInterval;
+    let currentStep = 0;
+
+    progressTimerRef.current = setInterval(() => {
+      currentStep++;
+      const progress = (currentStep / totalSteps) * 100;
+      setCommandProgress(progress);
+
+      if (progress >= 100) {
+        if (progressTimerRef.current) {
+          clearInterval(progressTimerRef.current);
+        }
+      }
+    }, progressInterval);
+
+    // 응답 시간 제한
+    commandTimerRef.current = setTimeout(() => {
+      console.log('⏰ Command timeout');
       handleTimeout();
     }, settings.responseTime);
-  }, [isPlaying, generateCommand, difficulty]);
-
-  // 무응답 처리
-  const handleTimeout = useCallback(() => {
-    
-    if (!currentCommand) {
-      return;
-    }
-
-    const command = { ...currentCommand };
-    command.playerResponse = 'none';
-
-
-    // Simon Says 명령을 무시한 경우와 일반 명령을 무시한 경우 구분
-    if (command.isSimonSays) {
-      // Simon Says 명령을 무시 - 틀림
-      command.isCorrect = false;
-      setGameStats(prev => ({ 
-        ...prev, 
-        timeoutResponses: prev.timeoutResponses + 1,
-        totalCommands: prev.totalCommands + 1,
-        incorrectResponses: prev.incorrectResponses + 1
-      }));
-    } else {
-      // 일반 명령을 무시 - 정답
-      command.isCorrect = true;
-      setGameStats(prev => ({ 
-        ...prev, 
-        nonSimonIgnored: prev.nonSimonIgnored + 1,
-        totalCommands: prev.totalCommands + 1,
-        correctResponses: prev.correctResponses + 1,
-        score: prev.score + 5 // 올바르게 무시한 것에 대한 보상
-      }));
-    }
-
-    setGameStats(prev => {
-      const accuracy = prev.totalCommands > 0 
-        ? (prev.correctResponses / prev.totalCommands) * 100 
-        : 0;
-      
-      const avgReactionTime = reactionTimes.current.length > 0
-        ? reactionTimes.current.reduce((a, b) => a + b, 0) / reactionTimes.current.length
-        : 0;
-
-      return { ...prev, accuracy, avgReactionTime };
-    });
-
-    setIsWaitingForResponse(false);
-    setCurrentCommand(null);
-    
-    // 다음 명령어 대기
-    setTimeout(() => {
-      if (isPlaying) {
-        showNextCommand();
-      }
-    }, 1000);
-  }, [currentCommand, isPlaying]);
+  };
 
   // 응답 처리
-  const handleResponse = useCallback((direction: 'left' | 'right') => {
+  const handleResponse = (direction: 'left' | 'right') => {
+    console.log('👆 Response:', direction);
     
-    if (!currentCommand || !isWaitingForResponse) {
+    if (!currentCommand || !isWaitingForResponse || gameState !== 'playing') {
+      console.log('❌ Invalid response state');
       return;
     }
 
     // 타이머 정리
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
+    if (commandTimerRef.current) {
+      clearTimeout(commandTimerRef.current);
+      commandTimerRef.current = null;
+    }
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
     }
 
     const reactionTime = Date.now() - commandStartTime.current;
     reactionTimes.current.push(reactionTime);
 
-    const command = { ...currentCommand };
-    command.playerResponse = direction;
-    command.reactionTime = reactionTime;
-
-
     // 정답 여부 판단
     let isCorrect = false;
     let points = 0;
 
-    if (command.isSimonSays) {
+    if (currentCommand.isSimonSays) {
       // Simon Says 명령: 방향이 맞아야 함
-      isCorrect = command.direction === direction;
+      isCorrect = currentCommand.direction === direction;
       points = isCorrect ? 10 : -5;
-      
-      if (isCorrect) {
-        setGameStats(prev => ({ ...prev, simonSaysFollowed: prev.simonSaysFollowed + 1 }));
-      }
+      console.log('✅ Simon Says command:', isCorrect ? 'CORRECT' : 'WRONG');
     } else {
       // 일반 명령: 움직이면 안 됨 (잘못 움직임)
       isCorrect = false;
       points = -3;
-      setGameStats(prev => ({ ...prev, nonSimonFollowed: prev.nonSimonFollowed + 1 }));
+      console.log('❌ Non-Simon command: WRONG (should not move)');
     }
-
-    command.isCorrect = isCorrect;
 
     // 캐릭터 이동
     setCharacterPosition(direction);
@@ -232,7 +184,9 @@ export default function SimonsPathGame() {
         score: prev.score + points,
         totalCommands: prev.totalCommands + 1,
         correctResponses: isCorrect ? prev.correctResponses + 1 : prev.correctResponses,
-        incorrectResponses: !isCorrect ? prev.incorrectResponses + 1 : prev.incorrectResponses
+        incorrectResponses: !isCorrect ? prev.incorrectResponses + 1 : prev.incorrectResponses,
+        simonSaysFollowed: (currentCommand.isSimonSays && isCorrect) ? prev.simonSaysFollowed + 1 : prev.simonSaysFollowed,
+        nonSimonFollowed: (!currentCommand.isSimonSays) ? prev.nonSimonFollowed + 1 : prev.nonSimonFollowed
       };
       
       newStats.accuracy = newStats.totalCommands > 0 
@@ -248,50 +202,115 @@ export default function SimonsPathGame() {
 
     setIsWaitingForResponse(false);
     setCurrentCommand(null);
+    setCommandProgress(0);
     
     // 다음 명령어 대기
     setTimeout(() => {
-      if (isPlaying) {
+      if (gameState === 'playing') {
         showNextCommand();
       }
     }, 1500);
-  }, [currentCommand, isWaitingForResponse, isPlaying]);
+  };
 
+  // 무응답 처리
+  const handleTimeout = () => {
+    console.log('⏰ Handling timeout');
+    
+    if (!currentCommand || gameState !== 'playing') {
+      return;
+    }
 
+    // 타이머 정리
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
 
-  // 게임 초기화
-  const initGame = useCallback(() => {
+    let isCorrect = false;
+    let points = 0;
+
+    if (currentCommand.isSimonSays) {
+      // Simon Says 명령을 무시 - 틀림
+      isCorrect = false;
+      points = -5;
+      console.log('❌ Simon Says ignored: WRONG');
+    } else {
+      // 일반 명령을 무시 - 정답
+      isCorrect = true;
+      points = 5;
+      console.log('✅ Non-Simon ignored: CORRECT');
+    }
+
+    // 통계 업데이트
+    setGameStats(prev => {
+      const newStats = {
+        ...prev,
+        score: prev.score + points,
+        totalCommands: prev.totalCommands + 1,
+        correctResponses: isCorrect ? prev.correctResponses + 1 : prev.correctResponses,
+        incorrectResponses: !isCorrect ? prev.incorrectResponses + 1 : prev.incorrectResponses,
+        nonSimonIgnored: (!currentCommand.isSimonSays && isCorrect) ? prev.nonSimonIgnored + 1 : prev.nonSimonIgnored
+      };
+      
+      newStats.accuracy = newStats.totalCommands > 0 
+        ? (newStats.correctResponses / newStats.totalCommands) * 100 
+        : 0;
+      
+      newStats.avgReactionTime = reactionTimes.current.length > 0
+        ? reactionTimes.current.reduce((a, b) => a + b, 0) / reactionTimes.current.length
+        : 0;
+
+      return newStats;
+    });
+
+    setIsWaitingForResponse(false);
+    setCurrentCommand(null);
+    setCommandProgress(0);
+    
+    // 다음 명령어 대기
+    setTimeout(() => {
+      if (gameState === 'playing') {
+        showNextCommand();
+      }
+    }, 1000);
+  };
+
+  // 게임 시작
+  const startGame = () => {
+    console.log('🚀 Starting Simon\'s Path game...');
+    
+    // 게임 상태 초기화
+    setGameState('playing');
+    setTimeLeft(180);
+    setCurrentCommand(null);
+    setIsWaitingForResponse(false);
+    setCharacterPosition('center');
+    setCommandProgress(0);
     setGameStats({
       score: 0,
       totalCommands: 0,
       correctResponses: 0,
       incorrectResponses: 0,
-      timeoutResponses: 0,
       accuracy: 0,
       avgReactionTime: 0,
       simonSaysFollowed: 0,
-      simonSaysIgnored: 0,
       nonSimonIgnored: 0,
       nonSimonFollowed: 0
     });
-    setCurrentCommand(null);
-    setIsWaitingForResponse(false);
-    setCharacterPosition('center');
-    setTimeLeft(180);
     reactionTimes.current = [];
-    
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-  }, []);
 
-  // 게임 시작
-  const startGame = () => {
-    initGame();
-    setIsPlaying(true);
-    setShowInstructions(false);
-    
-    // 첫 번째 명령어를 바로 표시
+    // 게임 타이머 시작
+    gameTimerRef.current = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          setGameState('finished');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    // 첫 번째 명령어 표시
     setTimeout(() => {
       showNextCommand();
     }, 1000);
@@ -299,23 +318,67 @@ export default function SimonsPathGame() {
 
   // 게임 일시정지
   const pauseGame = () => {
-    setIsPlaying(false);
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
+    console.log('⏸️ Pausing game...');
+    setGameState('paused');
+    
+    // 모든 타이머 정리
+    if (gameTimerRef.current) {
+      clearInterval(gameTimerRef.current);
+      gameTimerRef.current = null;
+    }
+    if (commandTimerRef.current) {
+      clearTimeout(commandTimerRef.current);
+      commandTimerRef.current = null;
+    }
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
     }
   };
 
   // 게임 재시작
   const resetGame = () => {
-    setIsPlaying(false);
-    initGame();
-    setShowInstructions(true);
+    console.log('🔄 Resetting game...');
+    setGameState('ready');
+    
+    // 모든 타이머 정리
+    if (gameTimerRef.current) {
+      clearInterval(gameTimerRef.current);
+      gameTimerRef.current = null;
+    }
+    if (commandTimerRef.current) {
+      clearTimeout(commandTimerRef.current);
+      commandTimerRef.current = null;
+    }
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
+
+    // 상태 초기화
+    setTimeLeft(180);
+    setCurrentCommand(null);
+    setIsWaitingForResponse(false);
+    setCharacterPosition('center');
+    setCommandProgress(0);
+    setGameStats({
+      score: 0,
+      totalCommands: 0,
+      correctResponses: 0,
+      incorrectResponses: 0,
+      accuracy: 0,
+      avgReactionTime: 0,
+      simonSaysFollowed: 0,
+      nonSimonIgnored: 0,
+      nonSimonFollowed: 0
+    });
+    reactionTimes.current = [];
   };
 
   // 키보드 이벤트 처리
   useEffect(() => {
     const handleKeyPress = (event: KeyboardEvent) => {
-      if (!isWaitingForResponse) return;
+      if (!isWaitingForResponse || gameState !== 'playing') return;
       
       if (event.key === 'ArrowLeft' || event.key === 'a' || event.key === 'A') {
         handleResponse('left');
@@ -326,31 +389,14 @@ export default function SimonsPathGame() {
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [handleResponse, isWaitingForResponse]);
+  }, [isWaitingForResponse, gameState, currentCommand]);
 
-  // 타이머
-  useEffect(() => {
-    if (!isPlaying) return;
-
-    const timer = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev <= 1) {
-          setIsPlaying(false);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [isPlaying]);
-
-  // 정리
+  // 컴포넌트 언마운트 시 정리
   useEffect(() => {
     return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
+      if (gameTimerRef.current) clearInterval(gameTimerRef.current);
+      if (commandTimerRef.current) clearTimeout(commandTimerRef.current);
+      if (progressTimerRef.current) clearInterval(progressTimerRef.current);
     };
   }, []);
 
@@ -370,7 +416,7 @@ export default function SimonsPathGame() {
       </div>
 
       {/* Instructions */}
-      {showInstructions && (
+      {gameState === 'ready' && (
         <Card className="mb-6 bg-blue-50 border-blue-200">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -381,19 +427,19 @@ export default function SimonsPathGame() {
           <CardContent>
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <h4 className="font-semibold mb-2">따라해야 할 명령</h4>
+                <h4 className="font-semibold mb-2 text-green-700">✅ 따라해야 할 명령</h4>
                 <ul className="space-y-1 text-sm">
-                  <li>✅ "사이먼 가라사대: 왼쪽으로!" → 왼쪽 버튼 클릭</li>
-                  <li>✅ "사이먼 가라사대: 오른쪽으로!" → 오른쪽 버튼 클릭</li>
-                  <li>📌 정확히 따라하면 +10점</li>
+                  <li>• "사이먼 가라사대: 왼쪽으로!" → 왼쪽 버튼 클릭</li>
+                  <li>• "사이먼 가라사대: 오른쪽으로!" → 오른쪽 버튼 클릭</li>
+                  <li>• 정확히 따라하면 <strong>+10점</strong></li>
                 </ul>
               </div>
               <div>
-                <h4 className="font-semibold mb-2">무시해야 할 명령</h4>
+                <h4 className="font-semibold mb-2 text-red-700">❌ 무시해야 할 명령</h4>
                 <ul className="space-y-1 text-sm">
-                  <li>❌ "왼쪽으로!" (사이먼 가라사대 없음) → 움직이지 않기</li>
-                  <li>❌ "오른쪽으로!" (사이먼 가라사대 없음) → 움직이지 않기</li>
-                  <li>📌 올바르게 무시하면 +5점</li>
+                  <li>• "왼쪽으로!" (사이먼 가라사대 없음) → 아무것도 안하기</li>
+                  <li>• "오른쪽으로!" (사이먼 가라사대 없음) → 아무것도 안하기</li>
+                  <li>• 올바르게 무시하면 <strong>+5점</strong></li>
                 </ul>
               </div>
             </div>
@@ -485,40 +531,48 @@ export default function SimonsPathGame() {
             </div>
 
             {/* Command Display */}
-            <div className="h-24 flex items-center justify-center">
+            <div className="h-32 flex items-center justify-center">
               {currentCommand ? (
-                <div className={`text-center p-6 rounded-lg border-2 ${
+                <div className={`text-center p-6 rounded-lg border-2 max-w-md ${
                   currentCommand.isSimonSays 
                     ? 'bg-green-50 border-green-300 text-green-800' 
                     : 'bg-red-50 border-red-300 text-red-800'
                 }`}>
-                  <div className="text-xl font-bold">
+                  <div className="text-2xl font-bold mb-3">
                     {currentCommand.text}
                   </div>
                   {isWaitingForResponse && (
-                    <div className="mt-2">
+                    <div className="w-full">
                       <Progress 
-                        value={(Date.now() - commandStartTime.current) / difficultySettings[difficulty].responseTime * 100} 
-                        className="w-48 mx-auto"
+                        value={commandProgress} 
+                        className="w-full h-2"
                       />
+                      <div className="text-xs mt-1 text-gray-600">
+                        {currentCommand.isSimonSays ? '따라하세요!' : '무시하세요!'}
+                      </div>
                     </div>
                   )}
                 </div>
-              ) : isPlaying ? (
-                <div className="text-gray-500">다음 명령을 기다리는 중...</div>
+              ) : gameState === 'playing' ? (
+                <div className="text-gray-500 text-lg">다음 명령을 기다리는 중...</div>
+              ) : gameState === 'finished' ? (
+                <div className="text-center">
+                  <div className="text-3xl font-bold text-green-600 mb-2">게임 완료! 🎉</div>
+                  <div className="text-lg text-gray-600">최종 점수: {gameStats.score}점</div>
+                  <div className="text-sm text-gray-500">정확도: {gameStats.accuracy.toFixed(1)}%</div>
+                </div>
               ) : (
-                <div className="text-gray-500">게임을 시작하세요!</div>
+                <div className="text-gray-500 text-lg">게임을 시작하세요!</div>
               )}
             </div>
 
             {/* Action Buttons */}
-            {isWaitingForResponse && (
+            {isWaitingForResponse && gameState === 'playing' && (
               <div className="flex justify-center space-x-8">
                 <Button
                   onClick={() => handleResponse('left')}
                   size="lg"
-                  className="w-32 h-16 text-lg gap-2"
-                  variant="outline"
+                  className="w-32 h-16 text-lg gap-2 bg-blue-600 hover:bg-blue-700"
                 >
                   <ArrowLeft className="w-6 h-6" />
                   왼쪽
@@ -527,8 +581,7 @@ export default function SimonsPathGame() {
                 <Button
                   onClick={() => handleResponse('right')}
                   size="lg"
-                  className="w-32 h-16 text-lg gap-2"
-                  variant="outline"
+                  className="w-32 h-16 text-lg gap-2 bg-blue-600 hover:bg-blue-700"
                 >
                   오른쪽
                   <ArrowRight className="w-6 h-6" />
@@ -544,18 +597,20 @@ export default function SimonsPathGame() {
         <div className="flex gap-2">
           <Button
             onClick={startGame}
-            disabled={isPlaying}
+            disabled={gameState === 'playing'}
             className="gap-2"
+            size="lg"
           >
             <Play className="w-4 h-4" />
-            시작
+            {gameState === 'ready' ? '시작' : '다시 시작'}
           </Button>
           
           <Button
             onClick={pauseGame}
-            disabled={!isPlaying}
+            disabled={gameState !== 'playing'}
             variant="outline"
             className="gap-2"
+            size="lg"
           >
             <Pause className="w-4 h-4" />
             일시정지
@@ -565,9 +620,10 @@ export default function SimonsPathGame() {
             onClick={resetGame}
             variant="outline"
             className="gap-2"
+            size="lg"
           >
             <RotateCcw className="w-4 h-4" />
-            다시하기
+            초기화
           </Button>
         </div>
 
@@ -576,12 +632,12 @@ export default function SimonsPathGame() {
           <select
             value={difficulty}
             onChange={(e) => setDifficulty(e.target.value as 'easy' | 'medium' | 'hard')}
-            disabled={isPlaying}
-            className="px-3 py-1 border rounded-md text-sm"
+            disabled={gameState === 'playing'}
+            className="px-3 py-2 border rounded-md text-sm bg-white"
           >
-            <option value="easy">쉬움</option>
-            <option value="medium">보통</option>
-            <option value="hard">어려움</option>
+            <option value="easy">쉬움 (3초)</option>
+            <option value="medium">보통 (2.5초)</option>
+            <option value="hard">어려움 (2초)</option>
           </select>
         </div>
       </div>
