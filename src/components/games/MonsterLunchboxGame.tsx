@@ -4,538 +4,314 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { Play, Pause, RotateCcw, Utensils, ShoppingBag, Trophy, Volume2 } from 'lucide-react';
+import { Play, Pause, RotateCcw, Target, Zap, Trophy, Volume2 } from 'lucide-react';
 
 interface FoodItem {
   id: string;
   name: string;
-  emoji: string;
+  icon: string;
   color: string;
 }
 
 interface Order {
   items: { food: FoodItem; quantity: number }[];
-  audioText: string;
-}
-
-interface ConveyorFood {
-  id: string;
-  food: FoodItem;
-  x: number;
-  y: number;
-  speed: number;
+  text: string;
 }
 
 interface GameStats {
   score: number;
-  level: number;
-  totalOrders: number;
   completedOrders: number;
   failedOrders: number;
+  totalOrders: number;
   accuracy: number;
   avgCompletionTime: number;
-  perfectOrders: number;
 }
 
-const FOODS: FoodItem[] = [
-  { id: 'apple', name: '사과', emoji: '🍎', color: '#FF6B6B' },
-  { id: 'sandwich', name: '샌드위치', emoji: '🥪', color: '#DEB887' },
-  { id: 'banana', name: '바나나', emoji: '🍌', color: '#FFE135' },
-  { id: 'cookie', name: '쿠키', emoji: '🍪', color: '#D2691E' },
-  { id: 'milk', name: '우유', emoji: '🥛', color: '#F5F5F5' },
-  { id: 'donut', name: '도넛', emoji: '🍩', color: '#FFB6C1' },
-  { id: 'pizza', name: '피자', emoji: '🍕', color: '#FF8C00' },
-  { id: 'hamburger', name: '햄버거', emoji: '🍔', color: '#8B4513' }
-];
-
 export default function MonsterLunchboxGame() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [gameState, setGameState] = useState<'ready' | 'playing' | 'paused' | 'finished'>('ready');
   const [timeLeft, setTimeLeft] = useState(180); // 3분
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
   const [lunchbox, setLunchbox] = useState<{ [key: string]: number }>({});
-  const [conveyorFoods, setConveyorFoods] = useState<ConveyorFood[]>([]);
+  const [conveyorItems, setConveyorItems] = useState<(FoodItem & { x: number; id: string })[]>([]);
   const [gameStats, setGameStats] = useState<GameStats>({
     score: 0,
-    level: 1,
-    totalOrders: 0,
     completedOrders: 0,
     failedOrders: 0,
+    totalOrders: 0,
     accuracy: 0,
-    avgCompletionTime: 0,
-    perfectOrders: 0
+    avgCompletionTime: 0
   });
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('easy');
-  const [showInstructions, setShowInstructions] = useState(true);
-  const [orderTimer, setOrderTimer] = useState(15); // 주문 완료 제한 시간
-  const [feedback, setFeedback] = useState<string>('');
+  const [orderStartTime, setOrderStartTime] = useState<number>(0);
 
-  const orderStartTime = useRef<number>(0);
+  const conveyorRef = useRef<HTMLDivElement>(null);
   const completionTimes = useRef<number[]>([]);
-  const speechSynthesis = useRef<SpeechSynthesis | null>(null);
+
+  // 음식 아이템 데이터
+  const foodItems: FoodItem[] = [
+    { id: 'apple', name: '사과', icon: '🍎', color: '#FF6B6B' },
+    { id: 'sandwich', name: '샌드위치', icon: '🥪', color: '#DEB887' },
+    { id: 'banana', name: '바나나', icon: '🍌', color: '#FFE135' },
+    { id: 'cookie', name: '쿠키', icon: '🍪', color: '#D2691E' },
+    { id: 'milk', name: '우유', icon: '🥛', color: '#F5F5F5' },
+    { id: 'pizza', name: '피자', icon: '🍕', color: '#FF8C00' },
+    { id: 'burger', name: '햄버거', icon: '🍔', color: '#8B4513' },
+    { id: 'donut', name: '도넛', icon: '🍩', color: '#FFB6C1' }
+  ];
 
   // 난이도별 설정
   const difficultySettings = {
     easy: { 
-      orderSize: 2, 
-      orderTime: 20, 
-      conveyorSpeed: 1, 
-      foodSpawnRate: 2000 
+      maxItems: 2, 
+      maxQuantity: 2, 
+      conveyorSpeed: 2, 
+      orderTime: 15000,
+      availableFoods: 4 
     },
     medium: { 
-      orderSize: 3, 
-      orderTime: 18, 
-      conveyorSpeed: 1.5, 
-      foodSpawnRate: 1500 
+      maxItems: 3, 
+      maxQuantity: 3, 
+      conveyorSpeed: 3, 
+      orderTime: 12000,
+      availableFoods: 6 
     },
     hard: { 
-      orderSize: 4, 
-      orderTime: 15, 
-      conveyorSpeed: 2, 
-      foodSpawnRate: 1200 
+      maxItems: 4, 
+      maxQuantity: 4, 
+      conveyorSpeed: 4, 
+      orderTime: 10000,
+      availableFoods: 8 
     }
   };
-
-  // 음성 합성 초기화
-  useEffect(() => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      speechSynthesis.current = window.speechSynthesis;
-    }
-  }, []);
 
   // 주문 생성
   const generateOrder = useCallback((): Order => {
     const settings = difficultySettings[difficulty];
-    const orderSize = Math.min(settings.orderSize + Math.floor(gameStats.level / 3), FOODS.length);
+    const availableFoods = foodItems.slice(0, settings.availableFoods);
+    const numItems = Math.floor(Math.random() * settings.maxItems) + 1;
     
-    // 주문할 음식들 선택 (중복 없이)
-    const selectedFoods = [...FOODS].sort(() => Math.random() - 0.5).slice(0, orderSize);
+    const orderItems: { food: FoodItem; quantity: number }[] = [];
+    const usedFoods = new Set<string>();
     
-    const items = selectedFoods.map(food => ({
-      food,
-      quantity: Math.floor(Math.random() * 3) + 1 // 1-3개
-    }));
-
-    // 음성 텍스트 생성
-    const itemTexts = items.map(item => `${item.food.name} ${item.quantity}개`);
-    const audioText = itemTexts.join('랑 ') + ' 주세요!';
-
-    return { items, audioText };
-  }, [difficulty, gameStats.level]);
-
-  // 주문 음성 재생
-  const playOrderAudio = useCallback((orderText: string) => {
-    if (!speechSynthesis.current) return;
-
-    try {
-      speechSynthesis.current.cancel(); // 이전 음성 취소
+    for (let i = 0; i < numItems; i++) {
+      let food: FoodItem;
+      do {
+        food = availableFoods[Math.floor(Math.random() * availableFoods.length)];
+      } while (usedFoods.has(food.id));
       
-      const utterance = new SpeechSynthesisUtterance(orderText);
-      utterance.lang = 'ko-KR';
-      utterance.rate = 0.8;
-      utterance.pitch = 1.2; // 몬스터 목소리처럼 높게
-      utterance.volume = 0.8;
-      
-      // 에러 처리
-      utterance.onerror = (event) => {
-        console.warn('음성 재생 중 오류 발생:', event);
-      };
-      
-      speechSynthesis.current.speak(utterance);
-    } catch (error) {
-      console.warn('음성 합성을 지원하지 않는 브라우저입니다:', error);
+      usedFoods.add(food.id);
+      const quantity = Math.floor(Math.random() * settings.maxQuantity) + 1;
+      orderItems.push({ food, quantity });
     }
-  }, []);
-
-  // 컨베이어 벨트 음식 생성
-  const spawnConveyorFood = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const food = FOODS[Math.floor(Math.random() * FOODS.length)];
-    const settings = difficultySettings[difficulty];
     
-    const newFood: ConveyorFood = {
-      id: Math.random().toString(36).substr(2, 9),
-      food,
-      x: canvas.width,
-      y: 200 + Math.random() * 100, // 컨베이어 벨트 영역
-      speed: settings.conveyorSpeed
+    // 주문 텍스트 생성
+    const orderText = orderItems
+      .map(item => `${item.food.name} ${item.quantity}개`)
+      .join('랑 ') + ' 줘!';
+    
+    return {
+      items: orderItems,
+      text: orderText
     };
+  }, [difficulty]);
 
-    setConveyorFoods(prev => [...prev, newFood]);
+  // 컨베이어 벨트 아이템 생성
+  const generateConveyorItem = useCallback((): (FoodItem & { x: number; id: string }) => {
+    const settings = difficultySettings[difficulty];
+    const availableFoods = foodItems.slice(0, settings.availableFoods);
+    const food = availableFoods[Math.floor(Math.random() * availableFoods.length)];
+    
+    return {
+      ...food,
+      x: -100, // 화면 왼쪽에서 시작
+      id: `${food.id}-${Date.now()}-${Math.random()}`
+    };
   }, [difficulty]);
 
   // 컨베이어 벨트 업데이트
   const updateConveyor = useCallback(() => {
-    setConveyorFoods(prev => 
-      prev.filter(food => {
-        food.x -= food.speed;
-        return food.x > -50; // 화면 밖으로 나가면 제거
-      })
-    );
-  }, []);
+    if (gameState !== 'playing') return;
+    
+    const settings = difficultySettings[difficulty];
+    
+    setConveyorItems(prev => {
+      // 기존 아이템들 이동
+      const movedItems = prev
+        .map(item => ({ ...item, x: item.x + settings.conveyorSpeed }))
+        .filter(item => item.x < 800); // 화면을 벗어난 아이템 제거
+      
+      // 새 아이템 추가 (확률적으로)
+      if (Math.random() < 0.02 && movedItems.length < 8) { // 2% 확률로 새 아이템 추가
+        movedItems.push(generateConveyorItem());
+      }
+      
+      return movedItems;
+    });
+  }, [gameState, difficulty, generateConveyorItem]);
 
-  // 음식을 도시락에 담기
-  const addToLunchbox = useCallback((foodId: string) => {
+  // 음식 아이템 클릭 (도시락에 추가)
+  const handleFoodClick = useCallback((item: FoodItem & { x: number; id: string }) => {
+    if (gameState !== 'playing' || !currentOrder) return;
+    
+    console.log('🍎 Food clicked:', item.name);
+    
+    // 도시락에 추가
     setLunchbox(prev => ({
       ...prev,
-      [foodId]: (prev[foodId] || 0) + 1
+      [item.food?.id || item.id]: (prev[item.food?.id || item.id] || 0) + 1
     }));
-  }, []);
+    
+    // 컨베이어에서 제거
+    setConveyorItems(prev => prev.filter(conveyorItem => conveyorItem.id !== item.id));
+  }, [gameState, currentOrder]);
 
   // 주문 확인
   const checkOrder = useCallback(() => {
     if (!currentOrder) return;
-
+    
+    console.log('📋 Checking order...');
+    console.log('Expected:', currentOrder.items);
+    console.log('Lunchbox:', lunchbox);
+    
     let isCorrect = true;
-    let totalRequired = 0;
-    let totalProvided = 0;
-
-    // 주문된 음식들 확인
+    
+    // 주문한 아이템들이 정확한 수량으로 있는지 확인
     for (const orderItem of currentOrder.items) {
-      const required = orderItem.quantity;
-      const provided = lunchbox[orderItem.food.id] || 0;
-      
-      totalRequired += required;
-      totalProvided += provided;
-      
-      if (provided !== required) {
+      const lunchboxQuantity = lunchbox[orderItem.food.id] || 0;
+      if (lunchboxQuantity !== orderItem.quantity) {
         isCorrect = false;
+        break;
       }
     }
-
-    // 추가로 담긴 음식이 있는지 확인
+    
+    // 주문하지 않은 아이템이 있는지 확인
+    const orderedFoodIds = new Set(currentOrder.items.map(item => item.food.id));
     for (const foodId in lunchbox) {
-      if (!currentOrder.items.find(item => item.food.id === foodId)) {
-        if (lunchbox[foodId] > 0) {
-          isCorrect = false;
-        }
+      if (lunchbox[foodId] > 0 && !orderedFoodIds.has(foodId)) {
+        isCorrect = false;
+        break;
       }
     }
-
-    const completionTime = Date.now() - orderStartTime.current;
+    
+    const completionTime = Date.now() - orderStartTime;
     completionTimes.current.push(completionTime);
-
+    
     if (isCorrect) {
-      // 성공
-      const points = currentOrder.items.length * 20 + (difficulty === 'hard' ? 20 : difficulty === 'medium' ? 10 : 0);
+      console.log('✅ Order completed correctly!');
+      
+      const basePoints = currentOrder.items.reduce((sum, item) => sum + item.quantity, 0) * 10;
+      const timeBonus = Math.max(0, 5000 - completionTime) / 100; // 빠를수록 보너스
+      const totalPoints = Math.round(basePoints + timeBonus);
       
       setGameStats(prev => {
         const newStats = {
           ...prev,
-          score: prev.score + points,
-          totalOrders: prev.totalOrders + 1,
+          score: prev.score + totalPoints,
           completedOrders: prev.completedOrders + 1,
-          level: Math.floor((prev.completedOrders + 1) / 3) + 1,
-          perfectOrders: prev.perfectOrders + 1
+          totalOrders: prev.totalOrders + 1
         };
         
-        newStats.accuracy = (newStats.completedOrders / newStats.totalOrders) * 100;
-        newStats.avgCompletionTime = completionTimes.current.reduce((a, b) => a + b, 0) / completionTimes.current.length;
+        newStats.accuracy = newStats.totalOrders > 0 
+          ? (newStats.completedOrders / newStats.totalOrders) * 100 
+          : 0;
+        
+        newStats.avgCompletionTime = completionTimes.current.length > 0
+          ? completionTimes.current.reduce((a, b) => a + b, 0) / completionTimes.current.length
+          : 0;
         
         return newStats;
       });
-      
-      setFeedback(`완벽해요! 몬스터가 기뻐해요! +${points}점`);
     } else {
-      // 실패
+      console.log('❌ Order failed!');
+      
       setGameStats(prev => {
         const newStats = {
           ...prev,
-          totalOrders: prev.totalOrders + 1,
-          failedOrders: prev.failedOrders + 1
+          failedOrders: prev.failedOrders + 1,
+          totalOrders: prev.totalOrders + 1
         };
         
-        newStats.accuracy = prev.totalOrders > 0 ? (prev.completedOrders / newStats.totalOrders) * 100 : 0;
+        newStats.accuracy = newStats.totalOrders > 0 
+          ? (newStats.completedOrders / newStats.totalOrders) * 100 
+          : 0;
+        
+        newStats.avgCompletionTime = completionTimes.current.length > 0
+          ? completionTimes.current.reduce((a, b) => a + b, 0) / completionTimes.current.length
+          : 0;
         
         return newStats;
       });
-      
-      setFeedback('아쉬워요! 주문과 다르네요. 다시 도전해보세요!');
     }
-
-    // 다음 주문 준비
+    
+    // 새 주문 생성
     setTimeout(() => {
-      startNewOrder();
-    }, 2000);
-  }, [currentOrder, lunchbox, difficulty]);
-
-  // 새 주문 시작
-  const startNewOrder = useCallback(() => {
-    const order = generateOrder();
-    setCurrentOrder(order);
-    setLunchbox({});
-    setFeedback('');
-    
-    const settings = difficultySettings[difficulty];
-    setOrderTimer(settings.orderTime);
-    orderStartTime.current = Date.now();
-    
-    // 몬스터 음성으로 주문 읽기
-    setTimeout(() => {
-      playOrderAudio(`몬스터: ${order.audioText}`);
-    }, 500);
-  }, [generateOrder, difficulty, playOrderAudio]);
-
-  // 캔버스 클릭 처리
-  const handleCanvasClick = useCallback((event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    if (!isPlaying) return;
-
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    
-    // 터치 이벤트인 경우 첫 번째 터치 포인트 사용
-    let clientX: number;
-    let clientY: number;
-    
-    if ('touches' in event) {
-      if (event.touches.length === 0) return;
-      clientX = event.touches[0].clientX;
-      clientY = event.touches[0].clientY;
-    } else {
-      clientX = event.clientX;
-      clientY = event.clientY;
-    }
-    
-    // 클릭 위치를 캔버스 좌표계로 변환
-    const clickX = (clientX - rect.left) * (canvas.width / dpr) / rect.width;
-    const clickY = (clientY - rect.top) * (canvas.height / dpr) / rect.height;
-
-    // 컨베이어 벨트의 음식 클릭 확인
-    const clickedFood = conveyorFoods.find(food => {
-      const distance = Math.sqrt(
-        Math.pow(clickX - food.x, 2) + Math.pow(clickY - food.y, 2)
-      );
-      return distance <= 40; // 클릭 가능 반경을 더 크게
-    });
-
-    if (clickedFood) {
-      // 음식을 도시락에 담기
-      addToLunchbox(clickedFood.food.id);
-      
-      // 컨베이어에서 제거
-      setConveyorFoods(prev => prev.filter(f => f.id !== clickedFood.id));
-    }
-  }, [isPlaying, conveyorFoods, addToLunchbox]);
-
-  // 캔버스 렌더링
-  const render = useCallback(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
-
-    // 배경 그리기
-    ctx.fillStyle = '#f0f8ff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // 컨베이어 벨트 그리기
-    ctx.fillStyle = '#8B4513';
-    ctx.fillRect(0, 180, canvas.width, 140);
-    
-    // 벨트 선 그리기
-    ctx.strokeStyle = '#654321';
-    ctx.lineWidth = 2;
-    for (let i = 0; i < canvas.width; i += 40) {
-      ctx.beginPath();
-      ctx.moveTo(i, 190);
-      ctx.lineTo(i + 20, 190);
-      ctx.moveTo(i, 310);
-      ctx.lineTo(i + 20, 310);
-      ctx.stroke();
-    }
-
-    // 컨베이어 음식 그리기
-    conveyorFoods.forEach(food => {
-      ctx.font = '40px serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(food.food.emoji, food.x, food.y);
-    });
-
-    // 몬스터 그리기
-    ctx.font = '60px serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('👹', 100, 100);
-    
-    // 몬스터 말풍선
-    if (currentOrder) {
-      ctx.fillStyle = '#ffffff';
-      ctx.strokeStyle = '#000000';
-      ctx.lineWidth = 2;
-      ctx.fillRect(150, 50, 300, 80);
-      ctx.strokeRect(150, 50, 300, 80);
-      
-      ctx.fillStyle = '#000000';
-      ctx.font = '16px Arial';
-      ctx.textAlign = 'left';
-      const orderText = currentOrder.items.map(item => 
-        `${item.food.emoji} ${item.quantity}개`
-      ).join(' ');
-      ctx.fillText(orderText, 160, 90);
-    }
-
-    // 도시락 영역 그리기
-    ctx.fillStyle = '#8B4513';
-    ctx.fillRect(canvas.width - 250, canvas.height - 120, 200, 100);
-    ctx.strokeStyle = '#654321';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(canvas.width - 250, canvas.height - 120, 200, 100);
-    
-    // 도시락 제목
-    ctx.fillStyle = '#000000';
-    ctx.font = 'bold 16px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('도시락', canvas.width - 150, canvas.height - 130);
-
-    // 도시락 내용물 표시
-    let index = 0;
-    for (const [foodId, quantity] of Object.entries(lunchbox)) {
-      if (quantity > 0) {
-        const food = FOODS.find(f => f.id === foodId);
-        if (food) {
-          const x = canvas.width - 230 + (index % 4) * 45;
-          const y = canvas.height - 100 + Math.floor(index / 4) * 40;
-          
-          ctx.font = '24px serif';
-          ctx.textAlign = 'center';
-          ctx.fillText(food.emoji, x, y);
-          
-          // 수량 표시
-          ctx.fillStyle = '#ffffff';
-          ctx.strokeStyle = '#000000';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.arc(x + 12, y - 12, 10, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.stroke();
-          
-          ctx.fillStyle = '#000000';
-          ctx.font = 'bold 12px Arial';
-          ctx.fillText(quantity.toString(), x + 12, y - 8);
-          
-          index++;
-        }
+      if (gameState === 'playing') {
+        const newOrder = generateOrder();
+        setCurrentOrder(newOrder);
+        setLunchbox({});
+        setOrderStartTime(Date.now());
+        console.log('📝 New order:', newOrder.text);
       }
-    }
-
-    // 타이머 표시
-    ctx.fillStyle = orderTimer <= 5 ? '#FF4444' : '#4CAF50';
-    ctx.font = 'bold 20px Arial';
-    ctx.textAlign = 'right';
-    ctx.fillText(`⏰ ${orderTimer}초`, canvas.width - 20, 30);
-  }, [conveyorFoods, currentOrder, lunchbox, orderTimer]);
-
-  // 게임 초기화
-  const initGame = useCallback(() => {
-    setGameStats({
-      score: 0,
-      level: 1,
-      totalOrders: 0,
-      completedOrders: 0,
-      failedOrders: 0,
-      accuracy: 0,
-      avgCompletionTime: 0,
-      perfectOrders: 0
-    });
-    setCurrentOrder(null);
-    setLunchbox({});
-    setConveyorFoods([]);
-    setFeedback('');
-    setOrderTimer(15);
-    setTimeLeft(180);
-    completionTimes.current = [];
-  }, []);
+    }, 2000);
+  }, [currentOrder, lunchbox, orderStartTime, gameState, generateOrder]);
 
   // 게임 시작
   const startGame = () => {
-    initGame();
-    setIsPlaying(true);
-    setShowInstructions(false);
-    setTimeout(() => startNewOrder(), 1000);
+    console.log('🎮 Starting Monster Lunchbox game...');
+    
+    setGameState('playing');
+    setTimeLeft(180);
+    setGameStats({
+      score: 0,
+      completedOrders: 0,
+      failedOrders: 0,
+      totalOrders: 0,
+      accuracy: 0,
+      avgCompletionTime: 0
+    });
+    setLunchbox({});
+    setConveyorItems([]);
+    completionTimes.current = [];
+    
+    // 첫 번째 주문 생성
+    const firstOrder = generateOrder();
+    setCurrentOrder(firstOrder);
+    setOrderStartTime(Date.now());
+    console.log('📝 First order:', firstOrder.text);
   };
 
   // 게임 일시정지
   const pauseGame = () => {
-    setIsPlaying(false);
+    console.log('⏸️ Pausing game...');
+    setGameState('paused');
   };
 
   // 게임 재시작
   const resetGame = () => {
-    setIsPlaying(false);
-    initGame();
-    setShowInstructions(true);
+    console.log('🔄 Resetting game...');
+    setGameState('ready');
+    setCurrentOrder(null);
+    setLunchbox({});
+    setConveyorItems([]);
+    setTimeLeft(180);
   };
 
-  // 주문 다시 듣기
-  const replayOrder = () => {
-    if (currentOrder) {
-      playOrderAudio(`몬스터: ${currentOrder.audioText}`);
-    }
-  };
-
-  // 게임 루프
+  // 컨베이어 벨트 애니메이션
   useEffect(() => {
-    if (!isPlaying) return;
-
-    const gameLoop = setInterval(() => {
-      updateConveyor();
-      render();
-    }, 1000 / 30); // 30 FPS
-
-    const spawnInterval = setInterval(() => {
-      spawnConveyorFood();
-    }, difficultySettings[difficulty].foodSpawnRate);
-
-    return () => {
-      clearInterval(gameLoop);
-      clearInterval(spawnInterval);
-    };
-  }, [isPlaying, difficulty, updateConveyor, render, spawnConveyorFood]);
-
-  // 주문 타이머
-  useEffect(() => {
-    if (!isPlaying || !currentOrder) return;
-
-    const timer = setInterval(() => {
-      setOrderTimer(prev => {
-        if (prev <= 1) {
-          // 시간 초과
-          setGameStats(prevStats => {
-            const newStats = {
-              ...prevStats,
-              totalOrders: prevStats.totalOrders + 1,
-              failedOrders: prevStats.failedOrders + 1
-            };
-            
-            newStats.accuracy = prevStats.totalOrders > 0 ? (prevStats.completedOrders / newStats.totalOrders) * 100 : 0;
-            
-            return newStats;
-          });
-          
-          setFeedback('시간 초과! 몬스터가 배고파해요 😢');
-          setTimeout(() => startNewOrder(), 2000);
-          return 15;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [isPlaying, currentOrder, startNewOrder]);
+    if (gameState !== 'playing') return;
+    
+    const interval = setInterval(updateConveyor, 50); // 20 FPS
+    return () => clearInterval(interval);
+  }, [gameState, updateConveyor]);
 
   // 게임 타이머
   useEffect(() => {
-    if (!isPlaying) return;
+    if (gameState !== 'playing') return;
 
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
-          setIsPlaying(false);
+          setGameState('finished');
           return 0;
         }
         return prev - 1;
@@ -543,49 +319,7 @@ export default function MonsterLunchboxGame() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isPlaying]);
-
-  // 캔버스 초기화 및 크기 설정
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    // 반응형 캔버스 크기 설정
-    const updateCanvasSize = () => {
-      const container = canvas.parentElement;
-      if (container) {
-        const containerWidth = container.clientWidth;
-        const aspectRatio = 800 / 400; // 원하는 가로:세로 비율
-        
-        // CSS 크기 설정
-        const cssWidth = Math.min(containerWidth, 800);
-        const cssHeight = cssWidth / aspectRatio;
-        
-        // 캔버스 실제 크기 설정
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = cssWidth * dpr;
-        canvas.height = cssHeight * dpr;
-        
-        canvas.style.width = cssWidth + 'px';
-        canvas.style.height = cssHeight + 'px';
-        
-        // 컨텍스트 스케일 조정
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.scale(dpr, dpr);
-        }
-        
-        render();
-      }
-    };
-
-    updateCanvasSize();
-    window.addEventListener('resize', updateCanvasSize);
-    
-    return () => {
-      window.removeEventListener('resize', updateCanvasSize);
-    };
-  }, [render]);
+  }, [gameState]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -598,35 +332,37 @@ export default function MonsterLunchboxGame() {
       {/* Header */}
       <div className="text-center mb-6">
         <h1 className="text-3xl font-bold mb-2">👹 까다로운 몬스터의 도시락</h1>
-        <p className="text-gray-600">몬스터의 주문을 정확히 듣고 도시락을 만들어주세요!</p>
+        <p className="text-gray-600">몬스터가 주문한 음식을 정확한 수량으로 도시락에 담아주세요!</p>
         <Badge className="mt-2" variant="outline">작업 기억 게임</Badge>
       </div>
 
       {/* Instructions */}
-      {showInstructions && (
-        <Card className="mb-6 bg-blue-50 border-blue-200">
+      {gameState === 'ready' && (
+        <Card className="mb-6 bg-purple-50 border-purple-200">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Utensils className="w-5 h-5" />
+              <Volume2 className="w-5 h-5" />
               게임 방법
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid md:grid-cols-3 gap-4">
-              <div className="text-center">
-                <div className="text-2xl mb-2">👂</div>
-                <h4 className="font-semibold mb-1">1. 주문 듣기</h4>
-                <p className="text-sm">몬스터가 말하는 음식과 개수를 정확히 기억하세요</p>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <h4 className="font-semibold mb-2 text-purple-700">👹 몬스터 주문 듣기</h4>
+                <ul className="space-y-1 text-sm">
+                  <li>• 몬스터가 "사과 2개랑 샌드위치 1개 줘!"라고 말합니다</li>
+                  <li>• 주문을 잘 기억해두세요</li>
+                  <li>• 정확한 음식과 수량을 기억하는 것이 중요해요</li>
+                </ul>
               </div>
-              <div className="text-center">
-                <div className="text-2xl mb-2">🏃‍♂️</div>
-                <h4 className="font-semibold mb-1">2. 음식 잡기</h4>
-                <p className="text-sm">컨베이어 벨트에서 필요한 음식을 빠르게 잡으세요</p>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl mb-2">📦</div>
-                <h4 className="font-semibold mb-1">3. 도시락 완성</h4>
-                <p className="text-sm">주문한 음식과 개수를 정확히 맞춰서 완성하세요</p>
+              <div>
+                <h4 className="font-semibold mb-2 text-green-700">🥪 도시락 만들기</h4>
+                <ul className="space-y-1 text-sm">
+                  <li>• 컨베이어 벨트에서 음식이 지나갑니다</li>
+                  <li>• 주문한 음식을 정확한 개수만큼 클릭하세요</li>
+                  <li>• 주문하지 않은 음식은 클릭하지 마세요</li>
+                  <li>• 완성되면 "주문 완료" 버튼을 누르세요</li>
+                </ul>
               </div>
             </div>
           </CardContent>
@@ -651,10 +387,12 @@ export default function MonsterLunchboxGame() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm text-gray-600">레벨</div>
-                <div className="text-2xl font-bold text-green-600">{gameStats.level}</div>
+                <div className="text-sm text-gray-600">정확도</div>
+                <div className="text-2xl font-bold text-green-600">
+                  {gameStats.accuracy.toFixed(1)}%
+                </div>
               </div>
-              <ShoppingBag className="w-8 h-8 text-green-500" />
+              <Target className="w-8 h-8 text-green-500" />
             </div>
           </CardContent>
         </Card>
@@ -663,12 +401,12 @@ export default function MonsterLunchboxGame() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm text-gray-600">성공률</div>
+                <div className="text-sm text-gray-600">완료한 주문</div>
                 <div className="text-2xl font-bold text-purple-600">
-                  {gameStats.accuracy.toFixed(1)}%
+                  {gameStats.completedOrders}
                 </div>
               </div>
-              <Utensils className="w-8 h-8 text-purple-500" />
+              <div className="text-2xl">📋</div>
             </div>
           </CardContent>
         </Card>
@@ -682,32 +420,155 @@ export default function MonsterLunchboxGame() {
                   {formatTime(timeLeft)}
                 </div>
               </div>
-              <div className="text-red-500">⏰</div>
+              <div className="text-2xl">⏰</div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Feedback */}
-      {feedback && (
-        <Card className="mb-4">
-          <CardContent className="p-4">
-            <div className="text-center text-lg font-semibold text-blue-700">
-              {feedback}
+      {/* Current Order */}
+      {currentOrder && gameState === 'playing' && (
+        <Card className="mb-6 bg-yellow-50 border-yellow-200">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <div className="text-2xl">👹</div>
+              몬스터의 주문
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-purple-700 mb-4">
+                "{currentOrder.text}"
+              </div>
+              <div className="flex justify-center gap-4 flex-wrap">
+                {currentOrder.items.map((item, index) => (
+                  <div key={index} className="flex items-center gap-2 bg-white p-2 rounded-lg border">
+                    <span className="text-2xl">{item.food.icon}</span>
+                    <span className="font-medium">{item.food.name}</span>
+                    <Badge variant="outline">{item.quantity}개</Badge>
+                  </div>
+                ))}
+              </div>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Game Canvas */}
+      {/* Game Area */}
       <Card className="mb-6">
-        <CardContent className="p-0">
-          <canvas
-            ref={canvasRef}
-            onClick={handleCanvasClick}
-            onTouchStart={handleCanvasClick}
-            className="border-2 border-gray-200 rounded-lg cursor-pointer touch-none"
-          />
+        <CardContent className="p-6">
+          <div className="space-y-6">
+            {/* Conveyor Belt */}
+            <div className="relative">
+              <div className="text-lg font-semibold mb-2">🏭 컨베이어 벨트</div>
+              <div 
+                ref={conveyorRef}
+                className="h-24 bg-gray-200 rounded-lg border-2 border-gray-300 relative overflow-hidden"
+                style={{ background: 'repeating-linear-gradient(90deg, #e5e7eb 0px, #e5e7eb 20px, #d1d5db 20px, #d1d5db 40px)' }}
+              >
+                {/* Conveyor Items */}
+                {conveyorItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="absolute top-2 cursor-pointer hover:scale-110 transition-transform"
+                    style={{ left: item.x }}
+                    onClick={() => handleFoodClick(item)}
+                  >
+                    <div className="w-20 h-20 bg-white rounded-lg border-2 border-gray-300 flex items-center justify-center shadow-md">
+                      <span className="text-3xl">{item.icon}</span>
+                    </div>
+                  </div>
+                ))}
+                
+                {/* Conveyor Direction Arrow */}
+                <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-500">
+                  →
+                </div>
+              </div>
+            </div>
+
+            {/* Lunchbox */}
+            <div>
+              <div className="text-lg font-semibold mb-2">🍱 도시락</div>
+              <div className="min-h-32 bg-amber-50 rounded-lg border-2 border-amber-200 p-4">
+                {Object.keys(lunchbox).length === 0 ? (
+                  <div className="text-center text-gray-500 py-8">
+                    도시락이 비어있습니다. 컨베이어 벨트에서 음식을 클릭하세요!
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-4">
+                    {Object.entries(lunchbox).map(([foodId, quantity]) => {
+                      const food = foodItems.find(f => f.id === foodId);
+                      if (!food || quantity === 0) return null;
+                      
+                      return (
+                        <div key={foodId} className="flex items-center gap-2 bg-white p-3 rounded-lg border">
+                          <span className="text-2xl">{food.icon}</span>
+                          <span className="font-medium">{food.name}</span>
+                          <Badge variant="secondary">{quantity}개</Badge>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              
+              {/* Order Complete Button */}
+              {currentOrder && gameState === 'playing' && (
+                <div className="text-center mt-4">
+                  <Button onClick={checkOrder} size="lg" className="gap-2">
+                    <Trophy className="w-5 h-5" />
+                    주문 완료!
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Game State Overlays */}
+          {gameState === 'ready' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-90 rounded-lg">
+              <div className="text-center">
+                <h2 className="text-2xl font-bold mb-4">👹 몬스터 도시락 준비!</h2>
+                <p className="mb-4">몬스터의 주문을 듣고 정확히 도시락을 만들어보세요</p>
+                <Button onClick={startGame} size="lg" className="gap-2">
+                  <Play className="w-5 h-5" />
+                  게임 시작
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {gameState === 'paused' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-90 rounded-lg">
+              <div className="text-center">
+                <h2 className="text-2xl font-bold mb-4">게임 일시정지</h2>
+                <Button onClick={() => setGameState('playing')} size="lg" className="gap-2">
+                  <Play className="w-5 h-5" />
+                  계속하기
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {gameState === 'finished' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-90 rounded-lg">
+              <div className="text-center">
+                <h2 className="text-3xl font-bold mb-4">도시락 완성! 🎉</h2>
+                <div className="space-y-2 mb-6">
+                  <p className="text-xl text-purple-600 font-bold">최종 점수: {gameStats.score}점</p>
+                  <p>완료한 주문: {gameStats.completedOrders}개</p>
+                  <p>정확도: {gameStats.accuracy.toFixed(1)}%</p>
+                </div>
+                <div className="flex gap-4 justify-center">
+                  <Button onClick={resetGame} className="gap-2">
+                    <RotateCcw className="w-4 h-4" />
+                    다시 하기
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -716,18 +577,20 @@ export default function MonsterLunchboxGame() {
         <div className="flex gap-2">
           <Button
             onClick={startGame}
-            disabled={isPlaying}
+            disabled={gameState === 'playing'}
             className="gap-2"
+            size="lg"
           >
             <Play className="w-4 h-4" />
-            시작
+            {gameState === 'ready' ? '시작' : '다시 시작'}
           </Button>
           
           <Button
             onClick={pauseGame}
-            disabled={!isPlaying}
+            disabled={gameState !== 'playing'}
             variant="outline"
             className="gap-2"
+            size="lg"
           >
             <Pause className="w-4 h-4" />
             일시정지
@@ -737,48 +600,25 @@ export default function MonsterLunchboxGame() {
             onClick={resetGame}
             variant="outline"
             className="gap-2"
+            size="lg"
           >
             <RotateCcw className="w-4 h-4" />
-            다시하기
+            초기화
           </Button>
-          
-          {currentOrder && (
-            <Button
-              onClick={replayOrder}
-              variant="outline"
-              className="gap-2"
-            >
-              <Volume2 className="w-4 h-4" />
-              주문 다시 듣기
-            </Button>
-          )}
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium">난이도:</label>
-            <select
-              value={difficulty}
-              onChange={(e) => setDifficulty(e.target.value as 'easy' | 'medium' | 'hard')}
-              disabled={isPlaying}
-              className="px-3 py-1 border rounded-md text-sm"
-            >
-              <option value="easy">쉬움 (2개)</option>
-              <option value="medium">보통 (3개)</option>
-              <option value="hard">어려움 (4개)</option>
-            </select>
-          </div>
-          
-          {isPlaying && currentOrder && (
-            <Button
-              onClick={checkOrder}
-              className="gap-2"
-              variant="default"
-            >
-              <ShoppingBag className="w-4 h-4" />
-              주문 완성!
-            </Button>
-          )}
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium">난이도:</label>
+          <select
+            value={difficulty}
+            onChange={(e) => setDifficulty(e.target.value as 'easy' | 'medium' | 'hard')}
+            disabled={gameState === 'playing'}
+            className="px-3 py-2 border rounded-md text-sm bg-white"
+          >
+            <option value="easy">쉬움 (2가지 음식)</option>
+            <option value="medium">보통 (3가지 음식)</option>
+            <option value="hard">어려움 (4가지 음식)</option>
+          </select>
         </div>
       </div>
 
@@ -792,21 +632,21 @@ export default function MonsterLunchboxGame() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
               <div>
                 <div className="text-2xl font-bold text-green-600">{gameStats.completedOrders}</div>
-                <div className="text-sm text-gray-600">완성한 주문</div>
+                <div className="text-sm text-gray-600">완료한 주문</div>
               </div>
               <div>
                 <div className="text-2xl font-bold text-red-600">{gameStats.failedOrders}</div>
                 <div className="text-sm text-gray-600">실패한 주문</div>
               </div>
               <div>
-                <div className="text-2xl font-bold text-purple-600">{gameStats.perfectOrders}</div>
-                <div className="text-sm text-gray-600">완벽한 주문</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-orange-600">
-                  {gameStats.avgCompletionTime ? Math.round(gameStats.avgCompletionTime / 1000) : 0}초
+                <div className="text-2xl font-bold text-blue-600">
+                  {Math.round(gameStats.avgCompletionTime / 1000)}초
                 </div>
                 <div className="text-sm text-gray-600">평균 완료 시간</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-purple-600">{gameStats.totalOrders}</div>
+                <div className="text-sm text-gray-600">총 주문 수</div>
               </div>
             </div>
           </CardContent>

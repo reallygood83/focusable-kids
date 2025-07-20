@@ -4,488 +4,293 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { Play, Pause, RotateCcw, Rocket, Star, Trophy } from 'lucide-react';
+import { Play, Pause, RotateCcw, Target, Zap, Trophy, Rocket } from 'lucide-react';
 
 interface Planet {
   id: string;
   name: string;
   color: string;
-  emoji: string;
+  icon: string;
   x: number;
   y: number;
   size: number;
-  isVisible: boolean;
-  orderNumber?: number;
-}
-
-interface GameRound {
-  sequence: Planet[];
-  playerSequence: string[];
-  currentStep: number;
-  isComplete: boolean;
-  isCorrect: boolean;
-  startTime: number;
-  endTime?: number;
 }
 
 interface GameStats {
   score: number;
-  level: number;
-  totalRounds: number;
-  correctRounds: number;
-  incorrectRounds: number;
+  correctSequences: number;
+  incorrectSequences: number;
+  totalSequences: number;
   accuracy: number;
-  avgCompletionTime: number;
-  maxSequenceLength: number;
-  perfectRounds: number;
+  avgReactionTime: number;
+  currentStreak: number;
+  bestStreak: number;
 }
 
-const PLANETS = [
-  { id: 'mars', name: '화성', color: '#CD5C5C', emoji: '🔴' },
-  { id: 'jupiter', name: '목성', color: '#DEB887', emoji: '🟠' },
-  { id: 'earth', name: '지구', color: '#4169E1', emoji: '🔵' },
-  { id: 'venus', name: '금성', color: '#FFD700', emoji: '🟡' },
-  { id: 'saturn', name: '토성', color: '#F4A460', emoji: '🟤' },
-  { id: 'neptune', name: '해왕성', color: '#4682B4', emoji: '💙' },
-  { id: 'mercury', name: '수성', color: '#A0522D', emoji: '⚫' },
-  { id: 'uranus', name: '천왕성', color: '#40E0D0', emoji: '💚' }
-];
-
 export default function SpaceDeliveryGame() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [gameState, setGameState] = useState<'ready' | 'playing' | 'paused' | 'finished'>('ready');
   const [timeLeft, setTimeLeft] = useState(180); // 3분
-  const [currentRound, setCurrentRound] = useState<GameRound | null>(null);
+  const [planets, setPlanets] = useState<Planet[]>([]);
+  const [sequence, setSequence] = useState<Planet[]>([]);
+  const [playerSequence, setPlayerSequence] = useState<Planet[]>([]);
+  const [showingSequence, setShowingSequence] = useState(false);
+  const [currentSequenceIndex, setCurrentSequenceIndex] = useState(0);
   const [gameStats, setGameStats] = useState<GameStats>({
     score: 0,
-    level: 1,
-    totalRounds: 0,
-    correctRounds: 0,
-    incorrectRounds: 0,
+    correctSequences: 0,
+    incorrectSequences: 0,
+    totalSequences: 0,
     accuracy: 0,
-    avgCompletionTime: 0,
-    maxSequenceLength: 0,
-    perfectRounds: 0
+    avgReactionTime: 0,
+    currentStreak: 0,
+    bestStreak: 0
   });
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('easy');
-  const [showInstructions, setShowInstructions] = useState(true);
-  const [gamePhase, setGamePhase] = useState<'showing' | 'memorizing' | 'input' | 'feedback'>('showing');
-  const [planetsOnCanvas, setPlanetsOnCanvas] = useState<Planet[]>([]);
-  const [feedback, setFeedback] = useState<string>('');
+  const [sequenceLength, setSequenceLength] = useState(3);
 
-  const completionTimes = useRef<number[]>([]);
+  const sequenceStartTime = useRef<number>(0);
+  const reactionTimes = useRef<number[]>([]);
+
+  // 행성 데이터
+  const planetData = [
+    { id: 'mars', name: '화성', color: '#CD5C5C', icon: '🔴' },
+    { id: 'jupiter', name: '목성', color: '#DEB887', icon: '🟠' },
+    { id: 'earth', name: '지구', color: '#4169E1', icon: '🔵' },
+    { id: 'venus', name: '금성', color: '#FFD700', icon: '🟡' },
+    { id: 'saturn', name: '토성', color: '#F4A460', icon: '🟤' },
+    { id: 'neptune', name: '해왕성', color: '#4682B4', icon: '🔷' }
+  ];
 
   // 난이도별 설정
   const difficultySettings = {
-    easy: { 
-      startLength: 3, 
-      maxLength: 5, 
-      showTime: 2000, 
-      memoryTime: 3000 
-    },
-    medium: { 
-      startLength: 4, 
-      maxLength: 6, 
-      showTime: 1500, 
-      memoryTime: 2500 
-    },
-    hard: { 
-      startLength: 5, 
-      maxLength: 7, 
-      showTime: 1000, 
-      memoryTime: 2000 
-    }
+    easy: { sequenceLength: 3, showTime: 1000, maxPlanets: 4 },
+    medium: { sequenceLength: 4, showTime: 800, maxPlanets: 5 },
+    hard: { sequenceLength: 5, showTime: 600, maxPlanets: 6 }
   };
 
   // 행성 위치 생성
-  const generatePlanetPositions = useCallback((count: number): Planet[] => {
-    const canvas = canvasRef.current;
-    if (!canvas) return [];
-
-    const planets: Planet[] = [];
-    const margin = 80;
-    const minDistance = 120;
-
-    for (let i = 0; i < count; i++) {
-      let attempts = 0;
-      let validPosition = false;
-      let x, y;
-
-      do {
-        x = margin + Math.random() * (canvas.width - margin * 2);
-        y = margin + Math.random() * (canvas.height - margin * 2);
-        
-        validPosition = planets.every(planet => {
-          const distance = Math.sqrt(Math.pow(x - planet.x, 2) + Math.pow(y - planet.y, 2));
-          return distance >= minDistance;
-        });
-        
-        attempts++;
-      } while (!validPosition && attempts < 50);
-
-      const planetData = PLANETS[i % PLANETS.length];
-      planets.push({
-        ...planetData,
-        x: x || margin + i * 100,
-        y: y || margin + Math.floor(i / 5) * 100,
-        size: 40,
-        isVisible: true,
-        orderNumber: i + 1
-      });
-    }
-
-    return planets;
-  }, []);
-
-  // 새 라운드 시작
-  const startNewRound = useCallback(() => {
+  const generatePlanetPositions = useCallback(() => {
     const settings = difficultySettings[difficulty];
-    const sequenceLength = Math.min(
-      settings.startLength + Math.floor(gameStats.level / 2),
-      settings.maxLength
-    );
-
-    const availablePlanets = generatePlanetPositions(Math.min(sequenceLength + 2, PLANETS.length));
-    const sequence = [];
+    const usedPlanets = planetData.slice(0, settings.maxPlanets);
     
-    // 시퀀스 생성 (중복 없이)
-    const selectedIndices = new Set<number>();
-    while (selectedIndices.size < sequenceLength) {
-      selectedIndices.add(Math.floor(Math.random() * availablePlanets.length));
-    }
-    
-    Array.from(selectedIndices).forEach(index => {
-      sequence.push(availablePlanets[index]);
+    const positions: Planet[] = usedPlanets.map((planet, index) => {
+      const angle = (index / settings.maxPlanets) * 2 * Math.PI;
+      const radius = 150;
+      const centerX = 200;
+      const centerY = 200;
+      
+      return {
+        ...planet,
+        x: centerX + Math.cos(angle) * radius,
+        y: centerY + Math.sin(angle) * radius,
+        size: 60
+      };
     });
 
-    const round: GameRound = {
-      sequence,
-      playerSequence: [],
-      currentStep: 0,
-      isComplete: false,
-      isCorrect: false,
-      startTime: Date.now()
-    };
+    setPlanets(positions);
+  }, [difficulty]);
 
-    setCurrentRound(round);
-    setPlanetsOnCanvas(availablePlanets);
-    setGamePhase('showing');
-    setFeedback('');
+  // 시퀀스 생성
+  const generateSequence = useCallback(() => {
+    const settings = difficultySettings[difficulty];
+    const newSequence: Planet[] = [];
+    
+    for (let i = 0; i < settings.sequenceLength; i++) {
+      const randomPlanet = planets[Math.floor(Math.random() * planets.length)];
+      newSequence.push(randomPlanet);
+    }
+    
+    console.log('🚀 Generated sequence:', newSequence.map(p => p.name));
+    setSequence(newSequence);
+    return newSequence;
+  }, [planets, difficulty]);
 
-    // 시퀀스 표시 단계
-    setTimeout(() => {
-      setGamePhase('memorizing');
-      setTimeout(() => {
-        setGamePhase('input');
-      }, settings.memoryTime);
-    }, settings.showTime);
-  }, [difficulty, gameStats.level, generatePlanetPositions]);
+  // 시퀀스 표시
+  const showSequence = useCallback(async (seq: Planet[]) => {
+    console.log('👀 Showing sequence...');
+    setShowingSequence(true);
+    setCurrentSequenceIndex(0);
+    
+    const settings = difficultySettings[difficulty];
+    
+    for (let i = 0; i < seq.length; i++) {
+      setCurrentSequenceIndex(i);
+      console.log(`🌟 Highlighting planet ${i + 1}/${seq.length}: ${seq[i].name}`);
+      
+      await new Promise(resolve => setTimeout(resolve, settings.showTime));
+      setCurrentSequenceIndex(-1);
+      await new Promise(resolve => setTimeout(resolve, 200)); // 간격
+    }
+    
+    setShowingSequence(false);
+    setCurrentSequenceIndex(-1);
+    setPlayerSequence([]);
+    sequenceStartTime.current = Date.now();
+    console.log('✅ Sequence shown, waiting for player input...');
+  }, [difficulty]);
 
   // 행성 클릭 처리
-  const handlePlanetClick = useCallback((planetId: string) => {
-    if (!currentRound || gamePhase !== 'input' || currentRound.isComplete) return;
+  const handlePlanetClick = useCallback((planet: Planet) => {
+    if (gameState !== 'playing' || showingSequence) {
+      console.log('❌ Invalid click state');
+      return;
+    }
 
-    const newPlayerSequence = [...currentRound.playerSequence, planetId];
-    const expectedPlanet = currentRound.sequence[currentRound.currentStep];
+    console.log('🌍 Planet clicked:', planet.name);
     
-    const isCorrectStep = expectedPlanet.id === planetId;
+    const newPlayerSequence = [...playerSequence, planet];
+    setPlayerSequence(newPlayerSequence);
     
-    if (isCorrectStep) {
-      // 올바른 행성 선택
-      const newCurrentStep = currentRound.currentStep + 1;
-      const isRoundComplete = newCurrentStep >= currentRound.sequence.length;
+    const currentIndex = newPlayerSequence.length - 1;
+    const expectedPlanet = sequence[currentIndex];
+    
+    console.log(`🎯 Expected: ${expectedPlanet?.name}, Got: ${planet.name}`);
+    
+    if (planet.id !== expectedPlanet?.id) {
+      // 틀린 경우
+      console.log('❌ Wrong planet!');
       
-      const updatedRound: GameRound = {
-        ...currentRound,
-        playerSequence: newPlayerSequence,
-        currentStep: newCurrentStep,
-        isComplete: isRoundComplete,
-        isCorrect: isRoundComplete,
-        endTime: isRoundComplete ? Date.now() : undefined
-      };
-      
-      setCurrentRound(updatedRound);
-      
-      if (isRoundComplete) {
-        // 라운드 완료
-        const completionTime = Date.now() - currentRound.startTime;
-        completionTimes.current.push(completionTime);
-        
-        const points = currentRound.sequence.length * 10 + (difficulty === 'hard' ? 10 : difficulty === 'medium' ? 5 : 0);
-        
-        setGameStats(prev => {
-          const newStats = {
-            ...prev,
-            score: prev.score + points,
-            totalRounds: prev.totalRounds + 1,
-            correctRounds: prev.correctRounds + 1,
-            level: Math.floor((prev.correctRounds + 1) / 3) + 1,
-            maxSequenceLength: Math.max(prev.maxSequenceLength, currentRound.sequence.length),
-            perfectRounds: prev.perfectRounds + 1
-          };
-          
-          newStats.accuracy = (newStats.correctRounds / newStats.totalRounds) * 100;
-          newStats.avgCompletionTime = completionTimes.current.reduce((a, b) => a + b, 0) / completionTimes.current.length;
-          
-          return newStats;
-        });
-        
-        setFeedback(`훌륭해요! ${currentRound.sequence.length}개 순서를 완벽하게 기억했네요! +${points}점`);
-        setGamePhase('feedback');
-        
-        // 다음 라운드 준비
-        setTimeout(() => {
-          startNewRound();
-        }, 2500);
-      } else {
-        setFeedback(`좋아요! ${newCurrentStep}/${currentRound.sequence.length}`);
-      }
-    } else {
-      // 틀린 행성 선택
-      const updatedRound: GameRound = {
-        ...currentRound,
-        playerSequence: newPlayerSequence,
-        isComplete: true,
-        isCorrect: false,
-        endTime: Date.now()
-      };
-      
-      setCurrentRound(updatedRound);
+      const reactionTime = Date.now() - sequenceStartTime.current;
+      reactionTimes.current.push(reactionTime);
       
       setGameStats(prev => {
         const newStats = {
           ...prev,
-          totalRounds: prev.totalRounds + 1,
-          incorrectRounds: prev.incorrectRounds + 1
+          incorrectSequences: prev.incorrectSequences + 1,
+          totalSequences: prev.totalSequences + 1,
+          currentStreak: 0
         };
         
-        newStats.accuracy = prev.totalRounds > 0 ? (prev.correctRounds / newStats.totalRounds) * 100 : 0;
+        newStats.accuracy = newStats.totalSequences > 0 
+          ? (newStats.correctSequences / newStats.totalSequences) * 100 
+          : 0;
         
+        newStats.avgReactionTime = reactionTimes.current.length > 0
+          ? reactionTimes.current.reduce((a, b) => a + b, 0) / reactionTimes.current.length
+          : 0;
+
         return newStats;
       });
       
-      setFeedback(`아쉬워요! 정답은 ${expectedPlanet.name}이었어요. 다시 도전해보세요!`);
-      setGamePhase('feedback');
-      
-      // 다음 라운드 준비
+      // 새로운 시퀀스 시작
       setTimeout(() => {
-        startNewRound();
-      }, 3000);
-    }
-  }, [currentRound, gamePhase, difficulty, startNewRound]);
-
-  // 캔버스 렌더링
-  const render = useCallback(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
-
-    // 배경 그리기 (우주)
-    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-    gradient.addColorStop(0, '#0B1426');
-    gradient.addColorStop(0.5, '#1B2951');
-    gradient.addColorStop(1, '#0B1426');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // 별 그리기
-    ctx.fillStyle = '#ffffff';
-    for (let i = 0; i < 100; i++) {
-      const x = (i * 73) % canvas.width;
-      const y = (i * 41) % canvas.height;
-      const size = Math.random() * 1.5 + 0.5;
-      ctx.beginPath();
-      ctx.arc(x, y, size, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // 행성 그리기
-    planetsOnCanvas.forEach((planet, index) => {
-      if (!planet.isVisible) return;
-
-      // 행성 본체
-      ctx.fillStyle = planet.color;
-      ctx.beginPath();
-      ctx.arc(planet.x, planet.y, planet.size, 0, Math.PI * 2);
-      ctx.fill();
-
-      // 이모지
-      ctx.font = `${planet.size * 0.8}px serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(planet.emoji, planet.x, planet.y);
-
-      // 시퀀스 표시 (showing 단계에서만)
-      if (gamePhase === 'showing' && currentRound) {
-        const sequenceIndex = currentRound.sequence.findIndex(p => p.id === planet.id);
-        if (sequenceIndex !== -1) {
-          // 순서 번호 표시
-          ctx.fillStyle = '#ffffff';
-          ctx.strokeStyle = '#000000';
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.arc(planet.x + planet.size * 0.7, planet.y - planet.size * 0.7, 15, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.stroke();
-          
-          ctx.fillStyle = '#000000';
-          ctx.font = 'bold 14px Arial';
-          ctx.fillText(
-            (sequenceIndex + 1).toString(), 
-            planet.x + planet.size * 0.7, 
-            planet.y - planet.size * 0.7
-          );
-          
-          // 화살표 애니메이션
-          const time = Date.now() / 1000;
-          const arrowOffset = Math.sin(time * 3) * 10;
-          ctx.fillStyle = '#FFD700';
-          ctx.font = '20px Arial';
-          ctx.fillText('→', planet.x - planet.size - 30 + arrowOffset, planet.y);
+        if (gameState === 'playing') {
+          const newSeq = generateSequence();
+          showSequence(newSeq);
         }
-      }
-
-      // 입력 단계에서 선택된 행성 표시
-      if (gamePhase === 'input' && currentRound) {
-        const isCompleted = currentRound.playerSequence.includes(planet.id);
-        const isNext = currentRound.sequence[currentRound.currentStep]?.id === planet.id;
+      }, 1500);
+      
+      return;
+    }
+    
+    // 올바른 행성을 클릭한 경우
+    if (newPlayerSequence.length === sequence.length) {
+      // 시퀀스 완성!
+      console.log('🎉 Sequence completed!');
+      
+      const reactionTime = Date.now() - sequenceStartTime.current;
+      reactionTimes.current.push(reactionTime);
+      
+      const points = sequence.length * 10 + (gameStats.currentStreak * 5);
+      
+      setGameStats(prev => {
+        const newStreak = prev.currentStreak + 1;
+        const newStats = {
+          ...prev,
+          score: prev.score + points,
+          correctSequences: prev.correctSequences + 1,
+          totalSequences: prev.totalSequences + 1,
+          currentStreak: newStreak,
+          bestStreak: Math.max(prev.bestStreak, newStreak)
+        };
         
-        if (isCompleted) {
-          // 이미 선택된 행성 - 녹색 테두리
-          ctx.strokeStyle = '#22c55e';
-          ctx.lineWidth = 4;
-          ctx.beginPath();
-          ctx.arc(planet.x, planet.y, planet.size + 5, 0, Math.PI * 2);
-          ctx.stroke();
-        } else if (isNext) {
-          // 다음에 선택해야 할 행성 - 반짝이는 효과
-          const glow = Math.sin(Date.now() / 200) * 0.5 + 0.5;
-          ctx.strokeStyle = `rgba(255, 215, 0, ${glow})`;
-          ctx.lineWidth = 6;
-          ctx.beginPath();
-          ctx.arc(planet.x, planet.y, planet.size + 8, 0, Math.PI * 2);
-          ctx.stroke();
+        newStats.accuracy = newStats.totalSequences > 0 
+          ? (newStats.correctSequences / newStats.totalSequences) * 100 
+          : 0;
+        
+        newStats.avgReactionTime = reactionTimes.current.length > 0
+          ? reactionTimes.current.reduce((a, b) => a + b, 0) / reactionTimes.current.length
+          : 0;
+
+        return newStats;
+      });
+      
+      // 난이도 증가 (최대 5개까지)
+      if (gameStats.currentStreak > 0 && gameStats.currentStreak % 3 === 0) {
+        setSequenceLength(prev => Math.min(prev + 1, 6));
+      }
+      
+      // 새로운 시퀀스 시작
+      setTimeout(() => {
+        if (gameState === 'playing') {
+          const newSeq = generateSequence();
+          showSequence(newSeq);
         }
-      }
-
-      // 행성 이름
-      if (gamePhase !== 'memorizing') {
-        ctx.fillStyle = '#ffffff';
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 2;
-        ctx.font = 'bold 14px Arial';
-        ctx.textAlign = 'center';
-        ctx.strokeText(planet.name, planet.x, planet.y + planet.size + 20);
-        ctx.fillText(planet.name, planet.x, planet.y + planet.size + 20);
-      }
-    });
-
-    // 우주선 그리기 (진행률에 따라 이동)
-    if (currentRound && gamePhase === 'input') {
-      const progress = currentRound.currentStep / currentRound.sequence.length;
-      const rocketX = 50 + (canvas.width - 100) * progress;
-      const rocketY = canvas.height - 50;
-      
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '30px serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('🚀', rocketX, rocketY);
-      
-      // 진행률 표시
-      ctx.fillStyle = '#FFD700';
-      ctx.font = 'bold 16px Arial';
-      ctx.fillText(`${currentRound.currentStep}/${currentRound.sequence.length}`, rocketX, rocketY + 30);
+      }, 1000);
     }
-  }, [planetsOnCanvas, gamePhase, currentRound]);
-
-  // 캔버스 클릭 처리 (터치 이벤트 지원)
-  const handleCanvasClick = useCallback((event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    if (gamePhase !== 'input') return;
-
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    
-    // 터치 이벤트와 마우스 이벤트 모두 지원
-    const clientX = 'touches' in event ? event.touches[0].clientX : event.clientX;
-    const clientY = 'touches' in event ? event.touches[0].clientY : event.clientY;
-    
-    // 캔버스의 실제 크기에 맞게 좌표 변환
-    const clickX = (clientX - rect.left) * scaleX / (window.devicePixelRatio || 1);
-    const clickY = (clientY - rect.top) * scaleY / (window.devicePixelRatio || 1);
-
-    // 클릭된 행성 찾기
-    const clickedPlanet = planetsOnCanvas.find(planet => {
-      const distance = Math.sqrt(
-        Math.pow(clickX - planet.x, 2) + Math.pow(clickY - planet.y, 2)
-      );
-      return distance <= planet.size;
-    });
-
-    if (clickedPlanet) {
-      handlePlanetClick(clickedPlanet.id);
-    }
-  }, [gamePhase, planetsOnCanvas, handlePlanetClick]);
-
-  // 게임 초기화
-  const initGame = useCallback(() => {
-    setGameStats({
-      score: 0,
-      level: 1,
-      totalRounds: 0,
-      correctRounds: 0,
-      incorrectRounds: 0,
-      accuracy: 0,
-      avgCompletionTime: 0,
-      maxSequenceLength: 0,
-      perfectRounds: 0
-    });
-    setCurrentRound(null);
-    setPlanetsOnCanvas([]);
-    setGamePhase('showing');
-    setFeedback('');
-    setTimeLeft(180);
-    completionTimes.current = [];
-  }, []);
+  }, [gameState, showingSequence, playerSequence, sequence, gameStats.currentStreak, generateSequence, showSequence]);
 
   // 게임 시작
   const startGame = () => {
-    initGame();
-    setIsPlaying(true);
-    setShowInstructions(false);
-    setTimeout(() => startNewRound(), 1000);
+    console.log('🚀 Starting Space Delivery game...');
+    
+    setGameState('playing');
+    setTimeLeft(180);
+    setGameStats({
+      score: 0,
+      correctSequences: 0,
+      incorrectSequences: 0,
+      totalSequences: 0,
+      accuracy: 0,
+      avgReactionTime: 0,
+      currentStreak: 0,
+      bestStreak: 0
+    });
+    setSequenceLength(difficultySettings[difficulty].sequenceLength);
+    reactionTimes.current = [];
+    
+    generatePlanetPositions();
   };
 
   // 게임 일시정지
   const pauseGame = () => {
-    setIsPlaying(false);
+    console.log('⏸️ Pausing game...');
+    setGameState('paused');
   };
 
   // 게임 재시작
   const resetGame = () => {
-    setIsPlaying(false);
-    initGame();
-    setShowInstructions(true);
+    console.log('🔄 Resetting game...');
+    setGameState('ready');
+    setSequence([]);
+    setPlayerSequence([]);
+    setShowingSequence(false);
+    setTimeLeft(180);
   };
 
-  // 렌더링 루프
+  // 행성 위치 초기화
   useEffect(() => {
-    const renderLoop = setInterval(render, 1000 / 30); // 30 FPS
-    return () => clearInterval(renderLoop);
-  }, [render]);
+    generatePlanetPositions();
+  }, [generatePlanetPositions]);
 
-  // 타이머
+  // 게임 시작 시 첫 시퀀스 생성
   useEffect(() => {
-    if (!isPlaying) return;
+    if (gameState === 'playing' && planets.length > 0 && sequence.length === 0) {
+      setTimeout(() => {
+        const newSeq = generateSequence();
+        showSequence(newSeq);
+      }, 1000);
+    }
+  }, [gameState, planets.length, sequence.length, generateSequence, showSequence]);
+
+  // 게임 타이머
+  useEffect(() => {
+    if (gameState !== 'playing') return;
 
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
-          setIsPlaying(false);
+          setGameState('finished');
           return 0;
         }
         return prev - 1;
@@ -493,49 +298,7 @@ export default function SpaceDeliveryGame() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isPlaying]);
-
-  // 캔버스 초기화 및 크기 설정
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    // 반응형 캔버스 크기 설정
-    const updateCanvasSize = () => {
-      const container = canvas.parentElement;
-      if (container) {
-        const containerWidth = container.clientWidth;
-        const aspectRatio = 800 / 600; // 원하는 가로:세로 비율
-        
-        // CSS 크기 설정
-        const cssWidth = Math.min(containerWidth, 800);
-        const cssHeight = cssWidth / aspectRatio;
-        
-        // 캔버스 실제 크기 설정
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = cssWidth * dpr;
-        canvas.height = cssHeight * dpr;
-        
-        canvas.style.width = cssWidth + 'px';
-        canvas.style.height = cssHeight + 'px';
-        
-        // 컨텍스트 스케일 조정
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.scale(dpr, dpr);
-        }
-        
-        render();
-      }
-    };
-
-    updateCanvasSize();
-    window.addEventListener('resize', updateCanvasSize);
-    
-    return () => {
-      window.removeEventListener('resize', updateCanvasSize);
-    };
-  }, [render]);
+  }, [gameState]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -543,32 +306,17 @@ export default function SpaceDeliveryGame() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const getPhaseDescription = () => {
-    switch (gamePhase) {
-      case 'showing':
-        return '배달 순서를 확인하세요!';
-      case 'memorizing':
-        return '순서를 기억하세요...';
-      case 'input':
-        return '기억한 순서대로 행성을 클릭하세요!';
-      case 'feedback':
-        return feedback;
-      default:
-        return '';
-    }
-  };
-
   return (
     <div className="max-w-6xl mx-auto p-6">
       {/* Header */}
       <div className="text-center mb-6">
         <h1 className="text-3xl font-bold mb-2">🚀 우주 택배 배달</h1>
-        <p className="text-gray-600">행성 순서를 기억하고 정확히 배달하세요!</p>
+        <p className="text-gray-600">행성 순서를 기억하고 올바른 순서로 택배를 배달하세요!</p>
         <Badge className="mt-2" variant="outline">작업 기억 게임</Badge>
       </div>
 
       {/* Instructions */}
-      {showInstructions && (
+      {gameState === 'ready' && (
         <Card className="mb-6 bg-blue-50 border-blue-200">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -577,21 +325,23 @@ export default function SpaceDeliveryGame() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid md:grid-cols-3 gap-4">
-              <div className="text-center">
-                <div className="text-2xl mb-2">👀</div>
-                <h4 className="font-semibold mb-1">1. 순서 확인</h4>
-                <p className="text-sm">화면에 표시되는 행성의 배달 순서를 주의 깊게 관찰하세요</p>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <h4 className="font-semibold mb-2 text-blue-700">📝 순서 기억하기</h4>
+                <ul className="space-y-1 text-sm">
+                  <li>• {difficultySettings[difficulty].sequenceLength}개의 행성이 순서대로 빛납니다</li>
+                  <li>• 각 행성이 {difficultySettings[difficulty].showTime}ms 동안 표시됩니다</li>
+                  <li>• 순서를 잘 기억해두세요!</li>
+                </ul>
               </div>
-              <div className="text-center">
-                <div className="text-2xl mb-2">🧠</div>
-                <h4 className="font-semibold mb-1">2. 기억하기</h4>
-                <p className="text-sm">행성들이 사라진 후 머릿속으로 순서를 되새겨보세요</p>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl mb-2">🎯</div>
-                <h4 className="font-semibold mb-1">3. 배달하기</h4>
-                <p className="text-sm">기억한 순서대로 행성을 클릭하여 택배를 배달하세요</p>
+              <div>
+                <h4 className="font-semibold mb-2 text-green-700">🎯 택배 배달하기</h4>
+                <ul className="space-y-1 text-sm">
+                  <li>• 기억한 순서대로 행성을 클릭하세요</li>
+                  <li>• 순서가 맞으면 다음 배달로 넘어갑니다</li>
+                  <li>• 틀리면 처음부터 다시 시작됩니다</li>
+                  <li>• 연속 성공하면 보너스 점수를 받아요!</li>
+                </ul>
               </div>
             </div>
           </CardContent>
@@ -616,10 +366,12 @@ export default function SpaceDeliveryGame() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm text-gray-600">레벨</div>
-                <div className="text-2xl font-bold text-green-600">{gameStats.level}</div>
+                <div className="text-sm text-gray-600">정확도</div>
+                <div className="text-2xl font-bold text-green-600">
+                  {gameStats.accuracy.toFixed(1)}%
+                </div>
               </div>
-              <Star className="w-8 h-8 text-green-500" />
+              <Target className="w-8 h-8 text-green-500" />
             </div>
           </CardContent>
         </Card>
@@ -628,12 +380,12 @@ export default function SpaceDeliveryGame() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm text-gray-600">정확도</div>
+                <div className="text-sm text-gray-600">연속 성공</div>
                 <div className="text-2xl font-bold text-purple-600">
-                  {gameStats.accuracy.toFixed(1)}%
+                  {gameStats.currentStreak}
                 </div>
               </div>
-              <Rocket className="w-8 h-8 text-purple-500" />
+              <Zap className="w-8 h-8 text-purple-500" />
             </div>
           </CardContent>
         </Card>
@@ -647,39 +399,141 @@ export default function SpaceDeliveryGame() {
                   {formatTime(timeLeft)}
                 </div>
               </div>
-              <Star className="w-8 h-8 text-red-500" />
+              <div className="text-2xl">⏰</div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Phase Indicator */}
-      {isPlaying && (
-        <Card className="mb-4">
-          <CardContent className="p-4">
-            <div className="text-center">
-              <div className="text-lg font-semibold text-blue-700">
-                {getPhaseDescription()}
+      {/* Game Area */}
+      <Card className="mb-6">
+        <CardContent className="p-8">
+          <div className="relative">
+            {/* Space Background */}
+            <div className="w-full h-96 bg-gradient-to-b from-indigo-900 via-purple-900 to-black rounded-lg relative overflow-hidden">
+              {/* Stars */}
+              <div className="absolute inset-0">
+                {Array.from({ length: 50 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="absolute w-1 h-1 bg-white rounded-full animate-pulse"
+                    style={{
+                      left: `${Math.random() * 100}%`,
+                      top: `${Math.random() * 100}%`,
+                      animationDelay: `${Math.random() * 2}s`
+                    }}
+                  />
+                ))}
               </div>
-              {currentRound && (
-                <div className="mt-2 text-sm text-gray-600">
-                  레벨 {gameStats.level} • 순서 길이: {currentRound.sequence.length}개
+
+              {/* Planets */}
+              {planets.map((planet, index) => {
+                const isHighlighted = showingSequence && currentSequenceIndex === sequence.findIndex(p => p.id === planet.id);
+                const isInPlayerSequence = playerSequence.some(p => p.id === planet.id);
+                
+                return (
+                  <div
+                    key={planet.id}
+                    className={`absolute cursor-pointer transition-all duration-300 transform hover:scale-110 ${
+                      isHighlighted ? 'scale-125 animate-pulse' : ''
+                    } ${isInPlayerSequence ? 'opacity-50' : ''}`}
+                    style={{
+                      left: planet.x - planet.size / 2,
+                      top: planet.y - planet.size / 2,
+                      width: planet.size,
+                      height: planet.size
+                    }}
+                    onClick={() => handlePlanetClick(planet)}
+                  >
+                    <div
+                      className={`w-full h-full rounded-full flex items-center justify-center text-2xl border-4 ${
+                        isHighlighted ? 'border-yellow-400 shadow-lg shadow-yellow-400/50' : 'border-white/30'
+                      }`}
+                      style={{ backgroundColor: planet.color }}
+                    >
+                      {planet.icon}
+                    </div>
+                    <div className="text-white text-xs text-center mt-1 font-medium">
+                      {planet.name}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Game State Overlays */}
+              {gameState === 'ready' && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 rounded-lg">
+                  <div className="text-center text-white">
+                    <h2 className="text-2xl font-bold mb-4">🚀 우주 택배 준비!</h2>
+                    <p className="mb-4">행성 순서를 기억하고 정확히 배달하세요</p>
+                    <Button onClick={startGame} size="lg" className="gap-2">
+                      <Play className="w-5 h-5" />
+                      게임 시작
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {gameState === 'paused' && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 rounded-lg">
+                  <div className="text-center text-white">
+                    <h2 className="text-2xl font-bold mb-4">게임 일시정지</h2>
+                    <Button onClick={() => setGameState('playing')} size="lg" className="gap-2">
+                      <Play className="w-5 h-5" />
+                      계속하기
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {gameState === 'finished' && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 rounded-lg">
+                  <div className="text-center text-white">
+                    <h2 className="text-3xl font-bold mb-4">배달 완료! 🎉</h2>
+                    <div className="space-y-2 mb-6">
+                      <p className="text-xl text-yellow-400 font-bold">최종 점수: {gameStats.score}점</p>
+                      <p>정확도: {gameStats.accuracy.toFixed(1)}%</p>
+                      <p>최고 연속 성공: {gameStats.bestStreak}회</p>
+                    </div>
+                    <div className="flex gap-4 justify-center">
+                      <Button onClick={resetGame} className="gap-2">
+                        <RotateCcw className="w-4 h-4" />
+                        다시 하기
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Sequence Display */}
+              {showingSequence && (
+                <div className="absolute top-4 left-1/2 transform -translate-x-1/2">
+                  <div className="bg-black bg-opacity-70 text-white px-4 py-2 rounded-lg">
+                    <div className="text-center">
+                      <div className="text-sm">배달 순서 확인 중...</div>
+                      <div className="text-lg font-bold">
+                        {currentSequenceIndex + 1} / {sequence.length}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Player Progress */}
+              {!showingSequence && gameState === 'playing' && sequence.length > 0 && (
+                <div className="absolute top-4 left-1/2 transform -translate-x-1/2">
+                  <div className="bg-black bg-opacity-70 text-white px-4 py-2 rounded-lg">
+                    <div className="text-center">
+                      <div className="text-sm">배달 진행</div>
+                      <div className="text-lg font-bold">
+                        {playerSequence.length} / {sequence.length}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Game Canvas */}
-      <Card className="mb-6">
-        <CardContent className="p-0">
-          <canvas
-            ref={canvasRef}
-            onClick={handleCanvasClick}
-            onTouchStart={handleCanvasClick}
-            className="border-2 border-gray-200 rounded-lg cursor-pointer touch-none"
-          />
+          </div>
         </CardContent>
       </Card>
 
@@ -688,18 +542,20 @@ export default function SpaceDeliveryGame() {
         <div className="flex gap-2">
           <Button
             onClick={startGame}
-            disabled={isPlaying}
+            disabled={gameState === 'playing'}
             className="gap-2"
+            size="lg"
           >
             <Play className="w-4 h-4" />
-            시작
+            {gameState === 'ready' ? '시작' : '다시 시작'}
           </Button>
           
           <Button
             onClick={pauseGame}
-            disabled={!isPlaying}
+            disabled={gameState !== 'playing'}
             variant="outline"
             className="gap-2"
+            size="lg"
           >
             <Pause className="w-4 h-4" />
             일시정지
@@ -709,9 +565,10 @@ export default function SpaceDeliveryGame() {
             onClick={resetGame}
             variant="outline"
             className="gap-2"
+            size="lg"
           >
             <RotateCcw className="w-4 h-4" />
-            다시하기
+            초기화
           </Button>
         </div>
 
@@ -720,18 +577,18 @@ export default function SpaceDeliveryGame() {
           <select
             value={difficulty}
             onChange={(e) => setDifficulty(e.target.value as 'easy' | 'medium' | 'hard')}
-            disabled={isPlaying}
-            className="px-3 py-1 border rounded-md text-sm"
+            disabled={gameState === 'playing'}
+            className="px-3 py-2 border rounded-md text-sm bg-white"
           >
-            <option value="easy">쉬움 (3-5개)</option>
-            <option value="medium">보통 (4-6개)</option>
-            <option value="hard">어려움 (5-7개)</option>
+            <option value="easy">쉬움 (3개 행성)</option>
+            <option value="medium">보통 (4개 행성)</option>
+            <option value="hard">어려움 (5개 행성)</option>
           </select>
         </div>
       </div>
 
       {/* Detailed Stats */}
-      {gameStats.totalRounds > 0 && (
+      {gameStats.totalSequences > 0 && (
         <Card className="mt-6">
           <CardHeader>
             <CardTitle>상세 통계</CardTitle>
@@ -739,22 +596,22 @@ export default function SpaceDeliveryGame() {
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
               <div>
-                <div className="text-2xl font-bold text-green-600">{gameStats.correctRounds}</div>
-                <div className="text-sm text-gray-600">성공한 라운드</div>
+                <div className="text-2xl font-bold text-green-600">{gameStats.correctSequences}</div>
+                <div className="text-sm text-gray-600">성공한 배달</div>
               </div>
               <div>
-                <div className="text-2xl font-bold text-blue-600">{gameStats.maxSequenceLength}</div>
-                <div className="text-sm text-gray-600">최대 순서 길이</div>
+                <div className="text-2xl font-bold text-red-600">{gameStats.incorrectSequences}</div>
+                <div className="text-sm text-gray-600">실패한 배달</div>
               </div>
               <div>
-                <div className="text-2xl font-bold text-purple-600">{gameStats.perfectRounds}</div>
-                <div className="text-sm text-gray-600">완벽한 라운드</div>
+                <div className="text-2xl font-bold text-purple-600">{gameStats.bestStreak}</div>
+                <div className="text-sm text-gray-600">최고 연속 성공</div>
               </div>
               <div>
-                <div className="text-2xl font-bold text-orange-600">
-                  {gameStats.avgCompletionTime ? Math.round(gameStats.avgCompletionTime / 1000) : 0}초
+                <div className="text-2xl font-bold text-blue-600">
+                  {Math.round(gameStats.avgReactionTime)}ms
                 </div>
-                <div className="text-sm text-gray-600">평균 완료 시간</div>
+                <div className="text-sm text-gray-600">평균 반응시간</div>
               </div>
             </div>
           </CardContent>
