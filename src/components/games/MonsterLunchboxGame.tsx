@@ -155,10 +155,13 @@ export default function MonsterLunchboxGame() {
     
     console.log('🍎 Food clicked:', item.name);
     
+    // 원본 음식 ID 찾기 (컨베이어 아이템의 고유 ID에서 음식 타입 추출)
+    const foodId = item.id.split('-')[0]; // 'apple-timestamp-random' -> 'apple'
+    
     // 도시락에 추가
     setLunchbox(prev => ({
       ...prev,
-      [item.food?.id || item.id]: (prev[item.food?.id || item.id] || 0) + 1
+      [foodId]: (prev[foodId] || 0) + 1
     }));
     
     // 컨베이어에서 제거
