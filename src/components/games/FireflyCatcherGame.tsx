@@ -4,19 +4,18 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { Play, Pause, RotateCcw, Target, Zap, Trophy } from 'lucide-react';
 
-interface Insect {
+interface Firefly {
   id: string;
-  type: 'yellow-firefly' | 'red-firefly' | 'moth' | 'beetle';
+  type: 'yellow' | 'red' | 'moth' | 'beetle';
   x: number;
   y: number;
   size: number;
   speed: number;
   direction: { x: number; y: number };
-  isVisible: boolean;
   createdAt: number;
+  isAlive: boolean;
 }
 
 interface GameStats {
@@ -25,73 +24,57 @@ interface GameStats {
   incorrectTaps: number;
   missed: number;
   accuracy: number;
-  reactionTimes: number[];
   avgReactionTime: number;
 }
 
 export default function FireflyCatcherGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const gameStartTime = useRef<number>(0);
+  const animationRef = useRef<number>(0);
+  const lastSpawnTime = useRef<number>(0);
+  const reactionTimes = useRef<number[]>([]);
 
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(180); // 3분 = 180초
-  const [insects, setInsects] = useState<Insect[]>([]);
+  const [gameState, setGameState] = useState<'ready' | 'playing' | 'paused' | 'finished'>('ready');
+  const [timeLeft, setTimeLeft] = useState(180); // 3분
+  const [fireflies, setFireflies] = useState<Firefly[]>([]);
   const [gameStats, setGameStats] = useState<GameStats>({
     score: 0,
     correctTaps: 0,
     incorrectTaps: 0,
     missed: 0,
     accuracy: 0,
-    reactionTimes: [],
     avgReactionTime: 0
   });
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('easy');
-  const [showInstructions, setShowInstructions] = useState(true);
 
   // 난이도별 설정
   const difficultySettings = {
-    easy: { spawnRate: 2000, maxInsects: 3, speed: 1 },
-    medium: { spawnRate: 1500, maxInsects: 5, speed: 1.5 },
-    hard: { spawnRate: 1000, maxInsects: 7, speed: 2 }
+    easy: { spawnRate: 2000, maxFireflies: 3, speed: 0.5 },
+    medium: { spawnRate: 1500, maxFireflies: 5, speed: 1 },
+    hard: { spawnRate: 1000, maxFireflies: 7, speed: 1.5 }
   };
 
-  // 곤충 데이터
-  const insectData = {
-    'yellow-firefly': { color: '#FFD700', points: 10, emoji: '✨', size: 25 },
-    'red-firefly': { color: '#FF4444', points: -5, emoji: '🔴', size: 25 },
-    'moth': { color: '#8B4513', points: -3, emoji: '🦋', size: 30 },
-    'beetle': { color: '#2F4F2F', points: -3, emoji: '🪲', size: 28 }
+  // 반딧불이 타입별 데이터
+  const fireflyData = {
+    yellow: { color: '#FFD700', points: 10, emoji: '✨', size: 30 },
+    red: { color: '#FF4444', points: -5, emoji: '🔴', size: 30 },
+    moth: { color: '#8B4513', points: -3, emoji: '🦋', size: 35 },
+    beetle: { color: '#2F4F2F', points: -3, emoji: '🪲', size: 32 }
   };
 
-  // 게임 초기화
-  const initGame = useCallback(() => {
-    setInsects([]);
-    setGameStats({
-      score: 0,
-      correctTaps: 0,
-      incorrectTaps: 0,
-      missed: 0,
-      accuracy: 0,
-      reactionTimes: [],
-      avgReactionTime: 0
-    });
-    setTimeLeft(180);
-  }, []);
-
-  // 곤충 생성
-  const createInsect = useCallback((): Insect | null => {
+  // 반딧불이 생성
+  const createFirefly = useCallback((): Firefly | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
 
-    const dpr = window.devicePixelRatio || 1;
-    const cssWidth = canvas.width / dpr;
-    const cssHeight = canvas.height / dpr;
+    const rect = canvas.getBoundingClientRect();
+    const canvasWidth = rect.width;
+    const canvasHeight = rect.height;
 
-    const types: Array<keyof typeof insectData> = ['yellow-firefly', 'red-firefly', 'moth', 'beetle'];
-    const weights = [40, 25, 20, 15]; // 노란 반딧불이가 가장 많이 나타남
+    const types: Array<keyof typeof fireflyData> = ['yellow', 'red', 'moth', 'beetle'];
+    const weights = [50, 20, 15, 15]; // 노란 반딧불이가 가장 많이 나타남
     
     let randomValue = Math.random() * 100;
-    let selectedType: keyof typeof insectData = 'yellow-firefly';
+    let selectedType: keyof typeof fireflyData = 'yellow';
     
     for (let i = 0; i < weights.length; i++) {
       if (randomValue < weights[i]) {
@@ -102,57 +85,65 @@ export default function FireflyCatcherGame() {
     }
 
     const settings = difficultySettings[difficulty];
-    const size = insectData[selectedType].size;
+    const data = fireflyData[selectedType];
     
-    const insect: Insect = {
+    const firefly: Firefly = {
       id: Math.random().toString(36).substr(2, 9),
       type: selectedType,
-      x: Math.random() * (cssWidth - size * 2) + size,
-      y: Math.random() * (cssHeight - size * 2) + size,
-      size,
+      x: Math.random() * (canvasWidth - data.size * 2) + data.size,
+      y: Math.random() * (canvasHeight - data.size * 2) + data.size,
+      size: data.size,
       speed: settings.speed * (0.5 + Math.random() * 0.5),
       direction: {
         x: (Math.random() - 0.5) * 2,
         y: (Math.random() - 0.5) * 2
       },
-      isVisible: true,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      isAlive: true
     };
 
-    return insect;
+    return firefly;
   }, [difficulty]);
 
-  // 곤충 이동 및 업데이트
-  const updateInsects = useCallback(() => {
+  // 반딧불이 업데이트
+  const updateFireflies = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const dpr = window.devicePixelRatio || 1;
-    const cssWidth = canvas.width / dpr;
-    const cssHeight = canvas.height / dpr;
+    const rect = canvas.getBoundingClientRect();
+    const canvasWidth = rect.width;
+    const canvasHeight = rect.height;
 
-    setInsects(prevInsects => {
-      return prevInsects.filter(insect => {
+    setFireflies(prevFireflies => {
+      return prevFireflies.filter(firefly => {
+        if (!firefly.isAlive) return false;
+
         // 경계에서 튕기기
-        if (insect.x <= insect.size || insect.x >= cssWidth - insect.size) {
-          insect.direction.x *= -1;
+        if (firefly.x <= firefly.size || firefly.x >= canvasWidth - firefly.size) {
+          firefly.direction.x *= -1;
         }
-        if (insect.y <= insect.size || insect.y >= cssHeight - insect.size) {
-          insect.direction.y *= -1;
+        if (firefly.y <= firefly.size || firefly.y >= canvasHeight - firefly.size) {
+          firefly.direction.y *= -1;
         }
 
         // 위치 업데이트
-        insect.x += insect.direction.x * insect.speed;
-        insect.y += insect.direction.y * insect.speed;
+        firefly.x += firefly.direction.x * firefly.speed;
+        firefly.y += firefly.direction.y * firefly.speed;
 
         // 경계 보정
-        insect.x = Math.max(insect.size, Math.min(cssWidth - insect.size, insect.x));
-        insect.y = Math.max(insect.size, Math.min(cssHeight - insect.size, insect.y));
+        firefly.x = Math.max(firefly.size, Math.min(canvasWidth - firefly.size, firefly.x));
+        firefly.y = Math.max(firefly.size, Math.min(canvasHeight - firefly.size, firefly.y));
 
         // 5초 후 자동 제거 (놓친 것으로 처리)
-        if (Date.now() - insect.createdAt > 5000) {
-          if (insect.type === 'yellow-firefly') {
-            setGameStats(prev => ({ ...prev, missed: prev.missed + 1 }));
+        if (Date.now() - firefly.createdAt > 5000) {
+          if (firefly.type === 'yellow') {
+            setGameStats(prev => ({ 
+              ...prev, 
+              missed: prev.missed + 1,
+              accuracy: prev.correctTaps + prev.incorrectTaps > 0 
+                ? (prev.correctTaps / (prev.correctTaps + prev.incorrectTaps)) * 100 
+                : 0
+            }));
           }
           return false;
         }
@@ -162,127 +153,150 @@ export default function FireflyCatcherGame() {
     });
   }, []);
 
-  // 렌더링
+  // 캔버스 렌더링
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
 
-    // DPR을 고려한 실제 캔버스 크기
-    const dpr = window.devicePixelRatio || 1;
-    const cssWidth = canvas.width / dpr;
-    const cssHeight = canvas.height / dpr;
+    const rect = canvas.getBoundingClientRect();
+    const canvasWidth = rect.width;
+    const canvasHeight = rect.height;
+
+    // 캔버스 크기 설정
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
 
     // 배경 그리기 (밤하늘)
-    const gradient = ctx.createLinearGradient(0, 0, 0, cssHeight);
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvasHeight);
     gradient.addColorStop(0, '#1a1a2e');
     gradient.addColorStop(1, '#16213e');
     ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, cssWidth, cssHeight);
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
     // 별 그리기
     ctx.fillStyle = '#ffffff';
     for (let i = 0; i < 50; i++) {
-      const x = (i * 47) % cssWidth;
-      const y = (i * 31) % cssHeight;
+      const x = (i * 47) % canvasWidth;
+      const y = (i * 31) % canvasHeight;
       const size = Math.random() * 1 + 0.5;
       ctx.beginPath();
       ctx.arc(x, y, size, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // 곤충 그리기
-    insects.forEach(insect => {
-      const data = insectData[insect.type];
+    // 반딧불이 그리기
+    fireflies.forEach(firefly => {
+      const data = fireflyData[firefly.type];
       
       // 반딧불이 효과 (빛나는 효과)
-      if (insect.type.includes('firefly')) {
-        const glowSize = insect.size * 2;
+      if (firefly.type === 'yellow' || firefly.type === 'red') {
+        const glowSize = firefly.size * 1.5;
         const gradient = ctx.createRadialGradient(
-          insect.x, insect.y, 0,
-          insect.x, insect.y, glowSize
+          firefly.x, firefly.y, 0,
+          firefly.x, firefly.y, glowSize
         );
         gradient.addColorStop(0, data.color + '80');
-        gradient.addColorStop(0.3, data.color + '40');
+        gradient.addColorStop(0.5, data.color + '40');
         gradient.addColorStop(1, data.color + '00');
         
         ctx.fillStyle = gradient;
         ctx.beginPath();
-        ctx.arc(insect.x, insect.y, glowSize, 0, Math.PI * 2);
+        ctx.arc(firefly.x, firefly.y, glowSize, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      // 곤충 본체
-      ctx.font = `${insect.size}px serif`;
+      // 반딧불이 본체 (더 크게 그리기)
+      ctx.font = `${firefly.size}px serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(data.emoji, insect.x, insect.y);
-
+      ctx.fillText(data.emoji, firefly.x, firefly.y);
     });
-  }, [insects]);
+  }, [fireflies]);
 
-  // 마우스/터치 클릭 처리
-  const handleCanvasClick = useCallback((event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    if (!isPlaying) return;
+  // 클릭/터치 처리
+  const handleCanvasInteraction = useCallback((event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    console.log('🎯 Canvas interaction detected');
+    
+    if (gameState !== 'playing') {
+      console.log('❌ Game not playing');
+      return;
+    }
 
+    event.preventDefault();
+    
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
     
-    // 터치 이벤트인 경우 첫 번째 터치 포인트 사용
+    // 클릭/터치 위치 계산
     let clientX: number;
     let clientY: number;
     
     if ('touches' in event) {
-      if (event.touches.length === 0) return;
-      clientX = event.touches[0].clientX;
-      clientY = event.touches[0].clientY;
+      if (event.touches.length === 0 && event.changedTouches.length > 0) {
+        // touchend 이벤트의 경우
+        clientX = event.changedTouches[0].clientX;
+        clientY = event.changedTouches[0].clientY;
+      } else if (event.touches.length > 0) {
+        // touchstart 이벤트의 경우
+        clientX = event.touches[0].clientX;
+        clientY = event.touches[0].clientY;
+      } else {
+        return;
+      }
     } else {
       clientX = event.clientX;
       clientY = event.clientY;
     }
     
-    // 클릭 위치를 캔버스 좌표계로 변환
-    const clickX = (clientX - rect.left) * (canvas.width / dpr) / rect.width;
-    const clickY = (clientY - rect.top) * (canvas.height / dpr) / rect.height;
+    const clickX = clientX - rect.left;
+    const clickY = clientY - rect.top;
     
-    let hitInsect: Insect | null = null;
+    console.log('📍 Click position:', clickX, clickY);
+    
+    let hitFirefly: Firefly | null = null;
     let minDistance = Infinity;
 
-    // 가장 가까운 곤충 찾기
-    insects.forEach(insect => {
+    // 가장 가까운 반딧불이 찾기
+    fireflies.forEach(firefly => {
       const distance = Math.sqrt(
-        Math.pow(clickX - insect.x, 2) + Math.pow(clickY - insect.y, 2)
+        Math.pow(clickX - firefly.x, 2) + Math.pow(clickY - firefly.y, 2)
       );
       
-      // 히트박스를 더 크게 설정 (터치하기 쉽게)
-      const hitRadius = insect.size * 2;
+      // 히트박스를 크게 설정 (터치하기 쉽게)
+      const hitRadius = firefly.size * 1.5;
+      
+      console.log(`🐛 Firefly ${firefly.id} at (${firefly.x.toFixed(1)}, ${firefly.y.toFixed(1)}), distance: ${distance.toFixed(1)}, hitRadius: ${hitRadius}`);
       
       if (distance <= hitRadius && distance < minDistance) {
-        hitInsect = insect;
+        hitFirefly = firefly;
         minDistance = distance;
       }
     });
 
-    if (hitInsect) {
-      const reactionTime = Date.now() - hitInsect.createdAt;
-      const points = insectData[hitInsect.type].points;
+    if (hitFirefly) {
+      console.log('🎯 Hit firefly:', hitFirefly.type);
+      
+      const reactionTime = Date.now() - hitFirefly.createdAt;
+      const points = fireflyData[hitFirefly.type].points;
+      
+      reactionTimes.current.push(reactionTime);
       
       // 통계 업데이트
       setGameStats(prev => {
-        const newReactionTimes = [...prev.reactionTimes, reactionTime];
-        const newCorrectTaps = hitInsect.type === 'yellow-firefly' ? prev.correctTaps + 1 : prev.correctTaps;
-        const newIncorrectTaps = hitInsect.type === 'yellow-firefly' ? prev.incorrectTaps : prev.incorrectTaps + 1;
+        const newCorrectTaps = hitFirefly!.type === 'yellow' ? prev.correctTaps + 1 : prev.correctTaps;
+        const newIncorrectTaps = hitFirefly!.type === 'yellow' ? prev.incorrectTaps : prev.incorrectTaps + 1;
         const totalAttempts = newCorrectTaps + newIncorrectTaps;
         const accuracy = totalAttempts > 0 ? (newCorrectTaps / totalAttempts) * 100 : 0;
-        const avgReactionTime = newReactionTimes.reduce((a, b) => a + b, 0) / newReactionTimes.length;
+        const avgReactionTime = reactionTimes.current.length > 0
+          ? reactionTimes.current.reduce((a, b) => a + b, 0) / reactionTimes.current.length
+          : 0;
 
         return {
           ...prev,
           score: prev.score + points,
-          reactionTimes: newReactionTimes,
           correctTaps: newCorrectTaps,
           incorrectTaps: newIncorrectTaps,
           accuracy,
@@ -290,70 +304,106 @@ export default function FireflyCatcherGame() {
         };
       });
 
-      // 곤충 제거
-      setInsects(prev => prev.filter(i => i.id !== hitInsect!.id));
+      // 반딧불이 제거
+      setFireflies(prev => prev.filter(f => f.id !== hitFirefly!.id));
+    } else {
+      console.log('❌ No firefly hit');
     }
-  }, [isPlaying, insects]);
+  }, [gameState, fireflies]);
 
+  // 게임 루프
+  const gameLoop = useCallback(() => {
+    if (gameState !== 'playing') return;
+
+    const now = Date.now();
+    const settings = difficultySettings[difficulty];
+
+    // 반딧불이 생성
+    if (now - lastSpawnTime.current > settings.spawnRate && fireflies.length < settings.maxFireflies) {
+      const newFirefly = createFirefly();
+      if (newFirefly) {
+        console.log('🐛 New firefly created:', newFirefly.type);
+        setFireflies(prev => [...prev, newFirefly]);
+        lastSpawnTime.current = now;
+      }
+    }
+
+    // 반딧불이 업데이트
+    updateFireflies();
+    
+    // 렌더링
+    render();
+
+    animationRef.current = requestAnimationFrame(gameLoop);
+  }, [gameState, difficulty, fireflies.length, createFirefly, updateFireflies, render]);
 
   // 게임 시작
   const startGame = () => {
-    initGame();
-    setIsPlaying(true);
-    setShowInstructions(false);
+    console.log('🚀 Starting Firefly Catcher game...');
+    
+    setGameState('playing');
+    setTimeLeft(180);
+    setFireflies([]);
+    setGameStats({
+      score: 0,
+      correctTaps: 0,
+      incorrectTaps: 0,
+      missed: 0,
+      accuracy: 0,
+      avgReactionTime: 0
+    });
+    reactionTimes.current = [];
+    lastSpawnTime.current = Date.now();
   };
 
   // 게임 일시정지
   const pauseGame = () => {
-    setIsPlaying(false);
+    console.log('⏸️ Pausing game...');
+    setGameState('paused');
   };
 
   // 게임 재시작
   const resetGame = () => {
-    setIsPlaying(false);
-    initGame();
-    setShowInstructions(true);
+    console.log('🔄 Resetting game...');
+    setGameState('ready');
+    setFireflies([]);
+    setTimeLeft(180);
+    setGameStats({
+      score: 0,
+      correctTaps: 0,
+      incorrectTaps: 0,
+      missed: 0,
+      accuracy: 0,
+      avgReactionTime: 0
+    });
+    reactionTimes.current = [];
   };
 
-  // 게임 루프
+  // 게임 루프 시작/정지
   useEffect(() => {
-    if (!isPlaying) return;
-
-    const settings = difficultySettings[difficulty];
-    
-    // 곤충 생성 인터벌
-    const spawnInterval = setInterval(() => {
-      setInsects(currentInsects => {
-        if (currentInsects.length < settings.maxInsects) {
-          const newInsect = createInsect();
-          if (newInsect) {
-            return [...currentInsects, newInsect];
-          }
-        }
-        return currentInsects;
-      });
-    }, settings.spawnRate);
-
-    // 게임 업데이트 루프
-    const gameLoop = setInterval(() => {
-      updateInsects();
-      render();
-    }, 1000 / 30); // 30 FPS
+    if (gameState === 'playing') {
+      animationRef.current = requestAnimationFrame(gameLoop);
+    } else {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    }
 
     return () => {
-      clearInterval(spawnInterval);
-      clearInterval(gameLoop);
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
     };
-  }, [isPlaying, difficulty, createInsect, updateInsects, render]);
+  }, [gameState, gameLoop]);
 
-  // 게임 타이머 (별도 useEffect)
+  // 게임 타이머
   useEffect(() => {
-    if (!isPlaying) return;
+    if (gameState !== 'playing') return;
 
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
-          setIsPlaying(false);
+          setGameState('finished');
           return 0;
         }
         return prev - 1;
@@ -361,50 +411,7 @@ export default function FireflyCatcherGame() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isPlaying]);
-
-  // 캔버스 초기화 및 크기 설정
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    // 반응형 캔버스 크기 설정
-    const updateCanvasSize = () => {
-      const container = canvas.parentElement;
-      if (container) {
-        const containerWidth = container.clientWidth;
-        const aspectRatio = 800 / 500; // 원하는 가로:세로 비율
-        
-        // CSS 크기 설정 (패딩 없이)
-        const cssWidth = Math.min(containerWidth, 800);
-        const cssHeight = cssWidth / aspectRatio;
-        
-        // 캔버스 실제 크기 설정 (고해상도 디스플레이 대응)
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = cssWidth * dpr;
-        canvas.height = cssHeight * dpr;
-        
-        // CSS 크기 설정
-        canvas.style.width = cssWidth + 'px';
-        canvas.style.height = cssHeight + 'px';
-        
-        // 컨텍스트 스케일 조정
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.scale(dpr, dpr);
-        }
-        
-        render();
-      }
-    };
-
-    updateCanvasSize();
-    window.addEventListener('resize', updateCanvasSize);
-    
-    return () => {
-      window.removeEventListener('resize', updateCanvasSize);
-    };
-  }, [render]);
+  }, [gameState]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -422,7 +429,7 @@ export default function FireflyCatcherGame() {
       </div>
 
       {/* Instructions */}
-      {showInstructions && (
+      {gameState === 'ready' && (
         <Card className="mb-6 bg-blue-50 border-blue-200">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -433,19 +440,20 @@ export default function FireflyCatcherGame() {
           <CardContent>
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <h4 className="font-semibold mb-2">목표</h4>
+                <h4 className="font-semibold mb-2 text-green-700">✅ 목표</h4>
                 <ul className="space-y-1 text-sm">
-                  <li>✨ 노란 반딧불이만 빠르게 탭하기 (+10점)</li>
-                  <li>🔴 빨간 반딧불이는 피하기 (-5점)</li>
-                  <li>🦋 나방과 🪲 딱정벌레도 피하기 (-3점)</li>
+                  <li>✨ <strong>노란 반딧불이</strong>만 빠르게 탭하기 <span className="text-green-600">(+10점)</span></li>
+                  <li>🔴 빨간 반딧불이는 피하기 <span className="text-red-600">(-5점)</span></li>
+                  <li>🦋 나방과 🪲 딱정벌레도 피하기 <span className="text-red-600">(-3점)</span></li>
                 </ul>
               </div>
               <div>
-                <h4 className="font-semibold mb-2">주의사항</h4>
+                <h4 className="font-semibold mb-2 text-blue-700">💡 팁</h4>
                 <ul className="space-y-1 text-sm">
                   <li>• 정확성과 속도가 모두 중요해요</li>
                   <li>• 곤충은 5초 후 사라져요</li>
                   <li>• 충동적으로 클릭하지 말고 잘 보고 선택하세요</li>
+                  <li>• 터치 영역이 넓으니 근처를 터치해도 됩니다</li>
                 </ul>
               </div>
             </div>
@@ -453,7 +461,7 @@ export default function FireflyCatcherGame() {
         </Card>
       )}
 
-      {/* Game Controls */}
+      {/* Game Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <Card>
           <CardContent className="p-4">
@@ -498,13 +506,60 @@ export default function FireflyCatcherGame() {
 
       {/* Game Canvas */}
       <Card className="mb-6">
-        <CardContent className="p-0">
-          <canvas
-            ref={canvasRef}
-            onClick={handleCanvasClick}
-            onTouchStart={handleCanvasClick}
-            className="border-2 border-gray-200 rounded-lg cursor-crosshair touch-none"
-          />
+        <CardContent className="p-4">
+          <div className="relative">
+            <canvas
+              ref={canvasRef}
+              onClick={handleCanvasInteraction}
+              onTouchEnd={handleCanvasInteraction}
+              className="w-full h-96 border-2 border-gray-200 rounded-lg cursor-crosshair touch-none bg-gray-900"
+              style={{ touchAction: 'none' }}
+            />
+            
+            {gameState === 'ready' && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 rounded-lg">
+                <div className="text-center text-white">
+                  <h2 className="text-2xl font-bold mb-4">게임 준비!</h2>
+                  <p className="mb-4">노란 반딧불이만 터치하세요</p>
+                  <Button onClick={startGame} size="lg" className="gap-2">
+                    <Play className="w-5 h-5" />
+                    게임 시작
+                  </Button>
+                </div>
+              </div>
+            )}
+            
+            {gameState === 'paused' && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 rounded-lg">
+                <div className="text-center text-white">
+                  <h2 className="text-2xl font-bold mb-4">게임 일시정지</h2>
+                  <Button onClick={() => setGameState('playing')} size="lg" className="gap-2">
+                    <Play className="w-5 h-5" />
+                    계속하기
+                  </Button>
+                </div>
+              </div>
+            )}
+            
+            {gameState === 'finished' && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 rounded-lg">
+                <div className="text-center text-white">
+                  <h2 className="text-3xl font-bold mb-4">게임 완료! 🎉</h2>
+                  <div className="space-y-2 mb-6">
+                    <p className="text-xl text-yellow-400 font-bold">최종 점수: {gameStats.score}점</p>
+                    <p>정확도: {gameStats.accuracy.toFixed(1)}%</p>
+                    <p>평균 반응시간: {Math.round(gameStats.avgReactionTime)}ms</p>
+                  </div>
+                  <div className="flex gap-4 justify-center">
+                    <Button onClick={resetGame} className="gap-2">
+                      <RotateCcw className="w-4 h-4" />
+                      다시 하기
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -513,18 +568,20 @@ export default function FireflyCatcherGame() {
         <div className="flex gap-2">
           <Button
             onClick={startGame}
-            disabled={isPlaying}
+            disabled={gameState === 'playing'}
             className="gap-2"
+            size="lg"
           >
             <Play className="w-4 h-4" />
-            시작
+            {gameState === 'ready' ? '시작' : '다시 시작'}
           </Button>
           
           <Button
             onClick={pauseGame}
-            disabled={!isPlaying}
+            disabled={gameState !== 'playing'}
             variant="outline"
             className="gap-2"
+            size="lg"
           >
             <Pause className="w-4 h-4" />
             일시정지
@@ -534,9 +591,10 @@ export default function FireflyCatcherGame() {
             onClick={resetGame}
             variant="outline"
             className="gap-2"
+            size="lg"
           >
             <RotateCcw className="w-4 h-4" />
-            다시하기
+            초기화
           </Button>
         </div>
 
@@ -545,21 +603,21 @@ export default function FireflyCatcherGame() {
           <select
             value={difficulty}
             onChange={(e) => setDifficulty(e.target.value as 'easy' | 'medium' | 'hard')}
-            disabled={isPlaying}
-            className="px-3 py-1 border rounded-md text-sm"
+            disabled={gameState === 'playing'}
+            className="px-3 py-2 border rounded-md text-sm bg-white"
           >
-            <option value="easy">쉬움</option>
-            <option value="medium">보통</option>
-            <option value="hard">어려움</option>
+            <option value="easy">쉬움 (느림)</option>
+            <option value="medium">보통 (중간)</option>
+            <option value="hard">어려움 (빠름)</option>
           </select>
         </div>
       </div>
 
-      {/* Game Stats */}
+      {/* Detailed Stats */}
       {(gameStats.correctTaps > 0 || gameStats.incorrectTaps > 0) && (
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle>게임 통계</CardTitle>
+            <CardTitle>상세 통계</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
@@ -577,7 +635,7 @@ export default function FireflyCatcherGame() {
               </div>
               <div>
                 <div className="text-2xl font-bold text-blue-600">
-                  {gameStats.avgReactionTime ? Math.round(gameStats.avgReactionTime) : 0}ms
+                  {Math.round(gameStats.avgReactionTime)}ms
                 </div>
                 <div className="text-sm text-gray-600">평균 반응시간</div>
               </div>

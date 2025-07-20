@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -73,7 +73,7 @@ export default function SimonsPathGame() {
   };
 
   // 명령어 생성
-  const generateCommand = (): Command => {
+  const generateCommand = useCallback((): Command => {
     const settings = difficultySettings[difficulty];
     const directions: Array<'left' | 'right'> = ['left', 'right'];
     const direction = directions[Math.floor(Math.random() * directions.length)];
@@ -91,11 +91,11 @@ export default function SimonsPathGame() {
       isSimonSays,
       timeShown: Date.now()
     };
-  };
+  }, [difficulty]);
 
   // 다음 명령어 표시
-  const showNextCommand = () => {
-    console.log('🎯 Showing next command...');
+  const showNextCommand = useCallback(() => {
+    console.log('🎯 Showing next command... gameState:', gameState);
     
     if (gameState !== 'playing') {
       console.log('❌ Game not playing, skipping command');
@@ -133,10 +133,10 @@ export default function SimonsPathGame() {
       console.log('⏰ Command timeout');
       handleTimeout();
     }, settings.responseTime);
-  };
+  }, [gameState, difficulty, generateCommand]);
 
   // 응답 처리
-  const handleResponse = (direction: 'left' | 'right') => {
+  const handleResponse = useCallback((direction: 'left' | 'right') => {
     console.log('👆 Response:', direction);
     
     if (!currentCommand || !isWaitingForResponse || gameState !== 'playing') {
@@ -210,10 +210,10 @@ export default function SimonsPathGame() {
         showNextCommand();
       }
     }, 1500);
-  };
+  }, [currentCommand, isWaitingForResponse, gameState, showNextCommand]);
 
   // 무응답 처리
-  const handleTimeout = () => {
+  const handleTimeout = useCallback(() => {
     console.log('⏰ Handling timeout');
     
     if (!currentCommand || gameState !== 'playing') {
@@ -273,7 +273,7 @@ export default function SimonsPathGame() {
         showNextCommand();
       }
     }, 1000);
-  };
+  }, [currentCommand, gameState, showNextCommand]);
 
   // 게임 시작
   const startGame = () => {
@@ -308,11 +308,6 @@ export default function SimonsPathGame() {
         }
         return prev - 1;
       });
-    }, 1000);
-
-    // 첫 번째 명령어 표시
-    setTimeout(() => {
-      showNextCommand();
     }, 1000);
   };
 
@@ -375,6 +370,51 @@ export default function SimonsPathGame() {
     reactionTimes.current = [];
   };
 
+  // 게임 시작 시 첫 번째 명령 표시
+  useEffect(() => {
+    if (gameState === 'playing' && !currentCommand && !isWaitingForResponse) {
+      console.log('🎮 Game started, showing first command...');
+      const timer = setTimeout(() => {
+        console.log('🎯 About to generate first command...');
+        
+        // 직접 명령 생성 및 표시
+        const command = generateCommand();
+        console.log('📝 First command generated:', command.text, 'isSimonSays:', command.isSimonSays);
+        
+        setCurrentCommand(command);
+        setIsWaitingForResponse(true);
+        setCommandProgress(0);
+        commandStartTime.current = Date.now();
+
+        // 프로그레스 바 애니메이션
+        const settings = difficultySettings[difficulty];
+        const progressInterval = 50;
+        const totalSteps = settings.responseTime / progressInterval;
+        let currentStep = 0;
+
+        progressTimerRef.current = setInterval(() => {
+          currentStep++;
+          const progress = (currentStep / totalSteps) * 100;
+          setCommandProgress(progress);
+
+          if (progress >= 100) {
+            if (progressTimerRef.current) {
+              clearInterval(progressTimerRef.current);
+            }
+          }
+        }, progressInterval);
+
+        // 응답 시간 제한
+        commandTimerRef.current = setTimeout(() => {
+          console.log('⏰ First command timeout');
+          handleTimeout();
+        }, settings.responseTime);
+      }, 1000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [gameState, currentCommand, isWaitingForResponse, difficulty, generateCommand, handleTimeout]);
+
   // 키보드 이벤트 처리
   useEffect(() => {
     const handleKeyPress = (event: KeyboardEvent) => {
@@ -389,7 +429,7 @@ export default function SimonsPathGame() {
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [isWaitingForResponse, gameState, currentCommand]);
+  }, [isWaitingForResponse, gameState, currentCommand, handleResponse]);
 
   // 컴포넌트 언마운트 시 정리
   useEffect(() => {
