@@ -163,9 +163,15 @@ export default function FireflyCatcherGame() {
     const canvasWidth = rect.width;
     const canvasHeight = rect.height;
 
-    // 캔버스 크기 설정
-    canvas.width = canvasWidth;
-    canvas.height = canvasHeight;
+    // 캔버스 크기 설정 - 픽셀 비율 고려
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    canvas.width = canvasWidth * devicePixelRatio;
+    canvas.height = canvasHeight * devicePixelRatio;
+    canvas.style.width = canvasWidth + 'px';
+    canvas.style.height = canvasHeight + 'px';
+    
+    // 컨텍스트 스케일링
+    ctx.scale(devicePixelRatio, devicePixelRatio);
 
     // 배경 그리기 (밤하늘)
     const gradient = ctx.createLinearGradient(0, 0, 0, canvasHeight);
@@ -224,6 +230,7 @@ export default function FireflyCatcherGame() {
     }
 
     event.preventDefault();
+    event.stopPropagation();
     
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -240,7 +247,7 @@ export default function FireflyCatcherGame() {
         clientX = event.changedTouches[0].clientX;
         clientY = event.changedTouches[0].clientY;
       } else if (event.touches.length > 0) {
-        // touchstart 이벤트의 경우
+        // touchstart/touchmove 이벤트의 경우
         clientX = event.touches[0].clientX;
         clientY = event.touches[0].clientY;
       } else {
@@ -251,8 +258,11 @@ export default function FireflyCatcherGame() {
       clientY = event.clientY;
     }
     
-    const clickX = clientX - rect.left;
-    const clickY = clientY - rect.top;
+    // 정확한 클릭 좌표 계산 (스케일링 고려)
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const clickX = (clientX - rect.left) * (scaleX / (window.devicePixelRatio || 1));
+    const clickY = (clientY - rect.top) * (scaleY / (window.devicePixelRatio || 1));
     
     console.log('📍 Click position:', clickX, clickY);
     
@@ -511,9 +521,15 @@ export default function FireflyCatcherGame() {
             <canvas
               ref={canvasRef}
               onClick={handleCanvasInteraction}
+              onTouchStart={handleCanvasInteraction}
               onTouchEnd={handleCanvasInteraction}
               className="w-full h-96 border-2 border-gray-200 rounded-lg cursor-crosshair touch-none bg-gray-900"
-              style={{ touchAction: 'none' }}
+              style={{ 
+                touchAction: 'none',
+                WebkitTouchCallout: 'none',
+                WebkitUserSelect: 'none',
+                userSelect: 'none'
+              }}
             />
             
             {gameState === 'ready' && (
